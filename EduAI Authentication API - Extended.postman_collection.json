@@ -1,0 +1,864 @@
+{
+	"info": {
+		"_postman_id": "0356f583-c9ed-4b8d-84a3-ba4ab085a5a5",
+		"name": "EduAI Authentication API - Extended",
+		"description": "Complete authentication system for EduAI with all endpoints including password management, sessions, and user profile",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "22770423"
+	},
+	"item": [
+		{
+			"name": "User Registration",
+			"item": [
+				{
+					"name": "Register New Student",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"// Auto-generate device ID if not set",
+									"if (!pm.environment.get('device_id')) {",
+									"    pm.environment.set('device_id', 'device_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9));",
+									"}",
+									"// Set current timestamp",
+									"pm.environment.set('timestamp', new Date().toISOString());",
+									"// Generate random IP for testing",
+									"if (!pm.environment.get('ip_address')) {",
+									"    pm.environment.set('ip_address', '192.168.1.' + Math.floor(Math.random() * 255));",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 201', function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"",
+									"pm.test('Response has success true', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.success).to.be.true;",
+									"});",
+									"",
+									"pm.test('Response contains user data', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.data.user).to.have.property('id');",
+									"    pm.expect(response.data.user).to.have.property('email');",
+									"    pm.expect(response.data.user.email).to.eql(pm.environment.get('user_email'));",
+									"});",
+									"",
+									"pm.test('Response contains tokens', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.data.tokens).to.have.property('access_token');",
+									"    pm.expect(response.data.tokens).to.have.property('refresh_token');",
+									"});",
+									"",
+									"// Extract tokens to environment variables",
+									"if (pm.response.code === 201) {",
+									"    const response = pm.response.json();",
+									"    pm.environment.set('access_token', response.data.tokens.access_token);",
+									"    pm.environment.set('refresh_token', response.data.tokens.refresh_token);",
+									"    pm.environment.set('user_id', response.data.user.id);",
+									"    pm.environment.set('verification_token', response.data.verification.verification_token);",
+									"}",
+									"",
+									"// Log metadata",
+									"const response = pm.response.json();",
+									"if (response.metadata) {",
+									"    console.log('Request ID:', response.metadata.request_id);",
+									"    console.log('Processing Time:', response.metadata.processing_time_ms + 'ms');",
+									"    console.log('Rate Limit Remaining:', response.metadata.rate_limit_remaining);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Client-Version",
+								"value": "1.0.0"
+							},
+							{
+								"key": "X-Device-Id",
+								"value": "{{device_id}}"
+							},
+							{
+								"key": "X-Platform",
+								"value": "web"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"{{user_email}}\",\n  \"password\": \"{{student_password}}\",\n  \"confirm_password\": \"{{student_password}}\",\n  \"first_name\": \"John\",\n  \"last_name\": \"Doe\",\n  \"user_type\": \"student\",\n  \"phone\": \"+1234567890\",\n  \"date_of_birth\": \"2000-01-01\",\n  \"gender\": \"male\",\n  \"terms_accepted\": true,\n  \"privacy_policy_accepted\": true,\n  \"marketing_consent\": false,\n  \"device_info\": {\n    \"device_id\": \"{{device_id}}\",\n    \"device_type\": \"web\",\n    \"os_version\": \"macOS\",\n    \"app_version\": \"1.0.0\"\n  },\n  \"location_info\": {\n    \"country\": \"US\",\n    \"state\": \"CA\",\n    \"city\": \"San Francisco\",\n    \"timezone\": \"America/Los_Angeles\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/register",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"auth",
+								"register"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Register New Teacher",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Client-Version",
+								"value": "1.0.0"
+							},
+							{
+								"key": "X-Device-Id",
+								"value": "{{device_id}}"
+							},
+							{
+								"key": "X-Platform",
+								"value": "web"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"teacher@eduai.com\",\n  \"password\": \"TeacherPass123!\",\n  \"confirm_password\": \"TeacherPass123!\",\n  \"first_name\": \"Jane\",\n  \"last_name\": \"Smith\",\n  \"user_type\": \"teacher\",\n  \"phone\": \"+1234567891\",\n  \"date_of_birth\": \"1985-05-15\",\n  \"gender\": \"female\",\n  \"terms_accepted\": true,\n  \"privacy_policy_accepted\": true,\n  \"marketing_consent\": true,\n  \"device_info\": {\n    \"device_id\": \"{{device_id}}\",\n    \"device_type\": \"web\",\n    \"os_version\": \"macOS\",\n    \"app_version\": \"1.0.0\"\n  },\n  \"location_info\": {\n    \"country\": \"US\",\n    \"state\": \"NY\",\n    \"city\": \"New York\",\n    \"timezone\": \"America/New_York\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/register",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"auth",
+								"register"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "User Login",
+			"item": [
+				{
+					"name": "Login Student",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Response has success true', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.success).to.be.true;",
+									"});",
+									"",
+									"// Extract tokens to environment variables",
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    pm.environment.set('access_token', response.data.tokens.access_token);",
+									"    pm.environment.set('refresh_token', response.data.tokens.refresh_token);",
+									"    pm.environment.set('user_id', response.data.user.id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Client-Version",
+								"value": "1.0.0"
+							},
+							{
+								"key": "X-Device-Id",
+								"value": "{{device_id}}"
+							},
+							{
+								"key": "X-Platform",
+								"value": "web"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"{{user_email}}\",\n  \"password\": \"{{student_password}}\",\n  \"device_info\": {\n    \"device_id\": \"{{device_id}}\",\n    \"device_type\": \"web\",\n    \"os_version\": \"macOS\",\n    \"app_version\": \"1.0.0\"\n  },\n  \"location_info\": {\n    \"country\": \"US\",\n    \"state\": \"CA\",\n    \"city\": \"San Francisco\",\n    \"timezone\": \"America/Los_Angeles\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/login",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"auth",
+								"login"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Login with Invalid Credentials",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 401', function () {",
+									"    pm.response.to.have.status(401);",
+									"});",
+									"",
+									"pm.test('Response has success false', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.success).to.be.false;",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Client-Version",
+								"value": "1.0.0"
+							},
+							{
+								"key": "X-Device-Id",
+								"value": "{{device_id}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"invalid@eduai.com\",\n  \"password\": \"wrongpassword\",\n  \"device_info\": {\n    \"device_id\": \"{{device_id}}\",\n    \"device_type\": \"web\",\n    \"os_version\": \"macOS\",\n    \"app_version\": \"1.0.0\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/login",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"auth",
+								"login"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Email Verification",
+			"item": [
+				{
+					"name": "Verify Email",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Email verified successfully', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.data.email_verified).to.be.true;",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Client-Version",
+								"value": "1.0.0"
+							},
+							{
+								"key": "X-Device-Id",
+								"value": "{{device_id}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"verification_token\": \"{{verification_token}}\",\n  \"device_info\": {\n    \"device_id\": \"{{device_id}}\",\n    \"device_type\": \"web\",\n    \"os_version\": \"macOS\",\n    \"app_version\": \"1.0.0\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/verify-email",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"auth",
+								"verify-email"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Resend Verification Email",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Email sent successfully', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.data.email_sent).to.be.true;",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Client-Version",
+								"value": "1.0.0"
+							},
+							{
+								"key": "X-Device-Id",
+								"value": "{{device_id}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"{{user_email}}\",\n  \"device_info\": {\n    \"device_id\": \"{{device_id}}\",\n    \"device_type\": \"web\",\n    \"os_version\": \"macOS\",\n    \"app_version\": \"1.0.0\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/resend-verification",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"auth",
+								"resend-verification"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Password Management",
+			"item": [
+				{
+					"name": "Forgot Password",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Reset email sent', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.data.reset_email_sent).to.be.true;",
+									"});",
+									"",
+									"// Extract reset token for testing",
+									"if (pm.response.code === 200) {",
+									"    // In real scenario, this would come from email",
+									"    pm.environment.set('reset_token', 'test_reset_token_' + Date.now());",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Client-Version",
+								"value": "1.0.0"
+							},
+							{
+								"key": "X-Device-Id",
+								"value": "{{device_id}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"{{user_email}}\",\n  \"device_info\": {\n    \"device_id\": \"{{device_id}}\",\n    \"device_type\": \"web\",\n    \"os_version\": \"macOS\",\n    \"app_version\": \"1.0.0\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/forgot-password",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"auth",
+								"forgot-password"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Reset Password",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Password reset successfully', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.data.password_reset).to.be.true;",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Client-Version",
+								"value": "1.0.0"
+							},
+							{
+								"key": "X-Device-Id",
+								"value": "{{device_id}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"reset_token\": \"{{reset_token}}\",\n  \"new_password\": \"NewPassword123!\",\n  \"confirm_password\": \"NewPassword123!\",\n  \"device_info\": {\n    \"device_id\": \"{{device_id}}\",\n    \"device_type\": \"web\",\n    \"os_version\": \"macOS\",\n    \"app_version\": \"1.0.0\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/reset-password",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"auth",
+								"reset-password"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Session Management",
+			"item": [
+				{
+					"name": "Get User Sessions",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Sessions retrieved successfully', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.data).to.have.property('sessions');",
+									"    pm.expect(response.data).to.have.property('total_sessions');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "X-Client-Version",
+								"value": "1.0.0"
+							},
+							{
+								"key": "X-Device-Id",
+								"value": "{{device_id}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/auth/sessions",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"auth",
+								"sessions"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Refresh Token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Tokens refreshed successfully', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.data.tokens).to.have.property('access_token');",
+									"    pm.expect(response.data.tokens).to.have.property('refresh_token');",
+									"});",
+									"",
+									"// Update tokens in environment",
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    pm.environment.set('access_token', response.data.tokens.access_token);",
+									"    pm.environment.set('refresh_token', response.data.tokens.refresh_token);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{refresh_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Client-Version",
+								"value": "1.0.0"
+							},
+							{
+								"key": "X-Device-Id",
+								"value": "{{device_id}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"device_id\": \"{{device_id}}\",\n  \"device_info\": {\n    \"device_id\": \"{{device_id}}\",\n    \"device_type\": \"web\",\n    \"os_version\": \"macOS\",\n    \"app_version\": \"1.0.0\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/refresh",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"auth",
+								"refresh"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "User Profile",
+			"item": [
+				{
+					"name": "Get User Profile",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Profile retrieved successfully', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.data.user).to.have.property('id');",
+									"    pm.expect(response.data.user).to.have.property('email');",
+									"    pm.expect(response.data.user).to.have.property('first_name');",
+									"    pm.expect(response.data.user).to.have.property('last_name');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "X-Client-Version",
+								"value": "1.0.0"
+							},
+							{
+								"key": "X-Device-Id",
+								"value": "{{device_id}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/auth/profile",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"auth",
+								"profile"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Logout",
+			"item": [
+				{
+					"name": "Logout Current Session",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Logged out successfully', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.data.logged_out).to.be.true;",
+									"});",
+									"",
+									"// Clear tokens after logout",
+									"if (pm.response.code === 200) {",
+									"    pm.environment.unset('access_token');",
+									"    pm.environment.unset('refresh_token');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Client-Version",
+								"value": "1.0.0"
+							},
+							{
+								"key": "X-Device-Id",
+								"value": "{{device_id}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"device_id\": \"{{device_id}}\",\n  \"logout_all_sessions\": false\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/logout",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"auth",
+								"logout"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Logout All Sessions",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('All sessions terminated', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.data.sessions_terminated).to.be.at.least(1);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Client-Version",
+								"value": "1.0.0"
+							},
+							{
+								"key": "X-Device-Id",
+								"value": "{{device_id}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"device_id\": \"{{device_id}}\",\n  \"logout_all_sessions\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/logout",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"auth",
+								"logout"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Health Check",
+			"item": [
+				{
+					"name": "Server Health",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Server is running', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.success).to.be.true;",
+									"    pm.expect(response.message).to.include('running');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/health",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"health"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "New Folder",
+			"item": []
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:3001/v1"
+		}
+	]
+}

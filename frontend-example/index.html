@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EduAI Authentication - Frontend Example</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+            margin: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e1e5e9;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: border-color 0.3s ease;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #c33;
+        }
+
+        .success {
+            background: #efe;
+            color: #363;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #363;
+        }
+
+        .form-toggle {
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .form-toggle button {
+            background: none;
+            color: #667eea;
+            border: none;
+            text-decoration: underline;
+            cursor: pointer;
+            width: auto;
+            padding: 0;
+        }
+
+        .form-toggle button:hover {
+            transform: none;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .profile-section {
+            text-align: center;
+        }
+
+        .profile-section h2 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        .profile-info {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .profile-info p {
+            margin-bottom: 10px;
+            color: #666;
+        }
+
+        .profile-info strong {
+            color: #333;
+        }
+
+        .logout-btn {
+            background: #dc3545;
+            margin-top: 10px;
+        }
+
+        .logout-btn:hover {
+            background: #c82333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Login Form -->
+        <div id="loginForm">
+            <h2 style="text-align: center; margin-bottom: 30px; color: #333;">Login to EduAI</h2>
+            
+            <div id="loginError" class="error hidden"></div>
+            <div id="loginSuccess" class="success hidden"></div>
+            
+            <form id="loginFormElement">
+                <div class="form-group">
+                    <label for="loginEmail">Email</label>
+                    <input type="email" id="loginEmail" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="loginPassword">Password</label>
+                    <input type="password" id="loginPassword" required>
+                </div>
+                
+                <button type="submit" id="loginBtn">Login</button>
+            </form>
+            
+            <div class="form-toggle">
+                <button onclick="showRegisterForm()">Don't have an account? Register</button>
+            </div>
+        </div>
+
+        <!-- Register Form -->
+        <div id="registerForm" class="hidden">
+            <h2 style="text-align: center; margin-bottom: 30px; color: #333;">Create Account</h2>
+            
+            <div id="registerError" class="error hidden"></div>
+            <div id="registerSuccess" class="success hidden"></div>
+            
+            <form id="registerFormElement">
+                <div class="form-group">
+                    <label for="registerFirstName">First Name</label>
+                    <input type="text" id="registerFirstName" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="registerLastName">Last Name</label>
+                    <input type="text" id="registerLastName" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="registerEmail">Email</label>
+                    <input type="email" id="registerEmail" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="registerPassword">Password</label>
+                    <input type="password" id="registerPassword" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="registerUserType">User Type</label>
+                    <select id="registerUserType" style="width: 100%; padding: 12px 16px; border: 2px solid #e1e5e9; border-radius: 10px; font-size: 16px;">
+                        <option value="student">Student</option>
+                        <option value="teacher">Teacher</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="registerPhone">Phone (Optional)</label>
+                    <input type="tel" id="registerPhone">
+                </div>
+                
+                <button type="submit" id="registerBtn">Register</button>
+            </form>
+            
+            <div class="form-toggle">
+                <button onclick="showLoginForm()">Already have an account? Login</button>
+            </div>
+        </div>
+
+        <!-- Profile Section -->
+        <div id="profileSection" class="hidden">
+            <div class="profile-section">
+                <h2>Welcome!</h2>
+                <div id="profileInfo" class="profile-info">
+                    <p><strong>Name:</strong> <span id="userName"></span></p>
+                    <p><strong>Email:</strong> <span id="userEmail"></span></p>
+                    <p><strong>User Type:</strong> <span id="userType"></span></p>
+                    <p><strong>Email Verified:</strong> <span id="emailVerified"></span></p>
+                </div>
+                <button class="logout-btn" onclick="logout()">Logout</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // API Client
+        class ApiClient {
+            constructor(baseURL = 'http://localhost:3001/api/v1') {
+                this.baseURL = baseURL;
+                this.accessToken = localStorage.getItem('accessToken');
+                this.refreshToken = localStorage.getItem('refreshToken');
+            }
+
+            setTokens(accessToken, refreshToken) {
+                this.accessToken = accessToken;
+                this.refreshToken = refreshToken;
+                localStorage.setItem('accessToken', accessToken);
+                localStorage.setItem('refreshToken', refreshToken);
+            }
+
+            clearTokens() {
+                this.accessToken = null;
+                this.refreshToken = null;
+                localStorage.removeItem('accessToken');
+                localStorage.removeItem('refreshToken');
+            }
+
+            getHeaders() {
+                const headers = {
+                    'Content-Type': 'application/json',
+                };
+                
+                if (this.accessToken) {
+                    headers['Authorization'] = `Bearer ${this.accessToken}`;
+                }
+
+                headers['X-Device-Id'] = this.getDeviceId();
+                headers['X-Platform'] = 'web';
+                headers['X-OS-Version'] = navigator.platform;
+                
+                return headers;
+            }
+
+            getDeviceId() {
+                let deviceId = localStorage.getItem('deviceId');
+                if (!deviceId) {
+                    deviceId = 'web_' + Math.random().toString(36).substr(2, 9);
+                    localStorage.setItem('deviceId', deviceId);
+                }
+                return deviceId;
+            }
+
+            async request(endpoint, options = {}) {
+                const url = `${this.baseURL}${endpoint}`;
+                const config = {
+                    headers: this.getHeaders(),
+                    ...options,
+                };
+
+                try {
+                    const response = await fetch(url, config);
+                    
+                    if (response.status === 401 && this.refreshToken) {
+                        const refreshed = await this.refreshAccessToken();
+                        if (refreshed) {
+                            config.headers = this.getHeaders();
+                            const retryResponse = await fetch(url, config);
+                            return await retryResponse.json();
+                        }
+                    }
+
+                    return await response.json();
+                } catch (error) {
+                    console.error('API request failed:', error);
+                    throw error;
+                }
+            }
+
+            async refreshAccessToken() {
+                try {
+                    const response = await fetch(`${this.baseURL}/auth/refresh`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${this.refreshToken}`,
+                            'X-Device-Id': this.getDeviceId(),
+                        },
+                        body: JSON.stringify({
+                            device_id: this.getDeviceId(),
+                        }),
+                    });
+
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        this.setTokens(data.data.tokens.access_token, data.data.tokens.refresh_token);
+                        return true;
+                    }
+                    
+                    return false;
+                } catch (error) {
+                    console.error('Token refresh failed:', error);
+                    this.clearTokens();
+                    return false;
+                }
+            }
+
+            async login(email, password) {
+                const response = await this.request('/auth/login', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        email,
+                        password,
+                        device_info: {
+                            device_id: this.getDeviceId(),
+                            device_type: 'web',
+                            os_version: navigator.platform,
+                            app_version: '1.0.0',
+                        },
+                        location_info: {
+                            country: 'Unknown',
+                            state: 'Unknown',
+                            city: 'Unknown',
+                            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                        },
+                    }),
+                });
+
+                if (response.success) {
+                    this.setTokens(
+                        response.data.tokens.access_token,
+                        response.data.tokens.refresh_token
+                    );
+                }
+
+                return response;
+            }
+
+            async register(userData) {
+                return this.request('/auth/register', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        ...userData,
+                        device_info: {
+                            device_id: this.getDeviceId(),
+                            device_type: 'web',
+                            os_version: navigator.platform,
+                            app_version: '1.0.0',
+                        },
+                        location_info: {
+                            country: 'Unknown',
+                            state: 'Unknown',
+                            city: 'Unknown',
+                            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                        },
+                    }),
+                });
+            }
+
+            async logout(logoutAllSessions = false) {
+                const response = await this.request('/auth/logout', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        device_id: this.getDeviceId(),
+                        logout_all_sessions: logoutAllSessions,
+                    }),
+                });
+
+                if (response.success) {
+                    this.clearTokens();
+                }
+
+                return response;
+            }
+
+            async getProfile() {
+                return this.request('/auth/profile');
+            }
+        }
+
+        // Initialize API client
+        const apiClient = new ApiClient();
+
+        // DOM elements
+        const loginForm = document.getElementById('loginForm');
+        const registerForm = document.getElementById('registerForm');
+        const profileSection = document.getElementById('profileSection');
+
+        // Form toggle functions
+        function showRegisterForm() {
+            loginForm.classList.add('hidden');
+            registerForm.classList.remove('hidden');
+            profileSection.classList.add('hidden');
+        }
+
+        function showLoginForm() {
+            registerForm.classList.add('hidden');
+            loginForm.classList.remove('hidden');
+            profileSection.classList.add('hidden');
+        }
+
+        function showProfile() {
+            loginForm.classList.add('hidden');
+            registerForm.classList.add('hidden');
+            profileSection.classList.remove('hidden');
+        }
+
+        // Check authentication status on page load
+        async function checkAuthStatus() {
+            if (apiClient.accessToken) {
+                try {
+                    const response = await apiClient.getProfile();
+                    if (response.success) {
+                        displayProfile(response.data.user);
+                        showProfile();
+                        return;
+                    }
+                } catch (error) {
+                    console.error('Auth check failed:', error);
+                    apiClient.clearTokens();
+                }
+            }
+            showLoginForm();
+        }
+
+        // Display user profile
+        function displayProfile(user) {
+            document.getElementById('userName').textContent = `${user.first_name} ${user.last_name}`;
+            document.getElementById('userEmail').textContent = user.email;
+            document.getElementById('userType').textContent = user.user_type;
+            document.getElementById('emailVerified').textContent = user.email_verified ? 'Yes' : 'No';
+        }
+
+        // Login form handler
+        document.getElementById('loginFormElement').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            const loginBtn = document.getElementById('loginBtn');
+            const loginError = document.getElementById('loginError');
+            const loginSuccess = document.getElementById('loginSuccess');
+
+            loginBtn.disabled = true;
+            loginBtn.textContent = 'Logging in...';
+            loginError.classList.add('hidden');
+            loginSuccess.classList.add('hidden');
+
+            try {
+                const response = await apiClient.login(email, password);
+                
+                if (response.success) {
+                    loginSuccess.textContent = 'Login successful!';
+                    loginSuccess.classList.remove('hidden');
+                    displayProfile(response.data.user);
+                    setTimeout(() => showProfile(), 1000);
+                } else {
+                    loginError.textContent = response.message;
+                    loginError.classList.remove('hidden');
+                }
+            } catch (error) {
+                loginError.textContent = 'Login failed. Please try again.';
+                loginError.classList.remove('hidden');
+            } finally {
+                loginBtn.disabled = false;
+                loginBtn.textContent = 'Login';
+            }
+        });
+
+        // Register form handler
+        document.getElementById('registerFormElement').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const userData = {
+                first_name: document.getElementById('registerFirstName').value,
+                last_name: document.getElementById('registerLastName').value,
+                email: document.getElementById('registerEmail').value,
+                password: document.getElementById('registerPassword').value,
+                user_type: document.getElementById('registerUserType').value,
+                phone: document.getElementById('registerPhone').value || null,
+                date_of_birth: null,
+                gender: null,
+                terms_accepted: true,
+                privacy_policy_accepted: true,
+                marketing_consent: false,
+            };
+
+            const registerBtn = document.getElementById('registerBtn');
+            const registerError = document.getElementById('registerError');
+            const registerSuccess = document.getElementById('registerSuccess');
+
+            registerBtn.disabled = true;
+            registerBtn.textContent = 'Registering...';
+            registerError.classList.add('hidden');
+            registerSuccess.classList.add('hidden');
+
+            try {
+                const response = await apiClient.register(userData);
+                
+                if (response.success) {
+                    registerSuccess.textContent = 'Registration successful! Please check your email for verification.';
+                    registerSuccess.classList.remove('hidden');
+                    setTimeout(() => showLoginForm(), 2000);
+                } else {
+                    registerError.textContent = response.message;
+                    registerError.classList.remove('hidden');
+                }
+            } catch (error) {
+                registerError.textContent = 'Registration failed. Please try again.';
+                registerError.classList.remove('hidden');
+            } finally {
+                registerBtn.disabled = false;
+                registerBtn.textContent = 'Register';
+            }
+        });
+
+        // Logout function
+        async function logout() {
+            try {
+                await apiClient.logout();
+                showLoginForm();
+            } catch (error) {
+                console.error('Logout failed:', error);
+                showLoginForm();
+            }
+        }
+
+        // Initialize the app
+        checkAuthStatus();
+    </script>
+</body>
+</html> 
