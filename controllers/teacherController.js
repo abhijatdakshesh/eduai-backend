@@ -124,26 +124,67 @@ module.exports = {
         }
       }
 
-      // Ensure each student is in the class
-      const studentIds = entries.map(e => e.student_id);
-      if (studentIds.length > 0) {
-        const validStudents = await db.query(
-          `SELECT sc.student_id
-           FROM student_classes sc
-           WHERE sc.class_id = $1 AND sc.student_id = ANY($2::uuid[])`,
-          [classId, studentIds]
-        );
-        const validSet = new Set(validStudents.rows.map(r => r.student_id));
-        for (const e of entries) {
-          if (!validSet.has(e.student_id)) {
-            return res.status(400).json({ success: false, message: 'One or more students are not enrolled in this class' });
+      // Resolve student identifiers: accept either UUIDs or student codes (e.g., "S001")
+      const isUuid = (value) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+      const roster = await db.query(
+        `SELECT s.id AS student_uuid, s.student_id AS student_code
+         FROM student_classes sc
+         JOIN students s ON sc.student_id = s.id
+         WHERE sc.class_id = $1`,
+        [classId]
+      );
+      const codeToUuid = new Map(roster.rows.map(r => [r.student_code, r.student_uuid]));
+      const enrolledUuidSet = new Set(roster.rows.map(r => r.student_uuid));
+
+      const unresolved = [];
+      const notEnrolled = [];
+      const resolvedEntries = [];
+
+      for (const e of entries) {
+        const candidateId = e.student_id ?? null;
+        const candidateCode = e.student_code ?? null;
+        let resolvedUuid = null;
+
+        if (candidateId) {
+          if (isUuid(candidateId)) {
+            resolvedUuid = candidateId;
+          } else if (codeToUuid.has(candidateId)) {
+            resolvedUuid = codeToUuid.get(candidateId);
           }
         }
+
+        if (!resolvedUuid && candidateCode && codeToUuid.has(candidateCode)) {
+          resolvedUuid = codeToUuid.get(candidateCode);
+        }
+
+        if (!resolvedUuid) {
+          unresolved.push({ provided: e.student_id || e.student_code });
+          continue;
+        }
+
+        if (!enrolledUuidSet.has(resolvedUuid)) {
+          notEnrolled.push({ student_id: resolvedUuid });
+          continue;
+        }
+
+        resolvedEntries.push({
+          student_id: resolvedUuid,
+          status: e.status,
+          notes: e.notes
+        });
+      }
+
+      if (unresolved.length > 0) {
+        return res.status(400).json({ success: false, message: 'One or more students could not be resolved to an enrolled student in this class', data: { unresolved } });
+      }
+
+      if (notEnrolled.length > 0) {
+        return res.status(400).json({ success: false, message: 'One or more students are not enrolled in this class', data: { notEnrolled } });
       }
 
       // Upsert all entries
       let updated = 0;
-      for (const e of entries) {
+      for (const e of resolvedEntries) {
         const status = e.status || 'present';
         const notes = e.notes || null;
         await db.query(
