@@ -3,13 +3,24 @@ require('dotenv').config();
 
 class EmailService {
   constructor() {
+    const port = Number(process.env.EMAIL_PORT) || 587;
+    const secureFromEnv = (process.env.EMAIL_SECURE || '').toLowerCase() === 'true';
+    const secure = secureFromEnv || port === 465;
+    const requireTLS = (process.env.EMAIL_REQUIRE_TLS || '').toLowerCase() === 'true';
+    const rejectUnauthorized = (process.env.EMAIL_TLS_REJECT_UNAUTHORIZED || 'true').toLowerCase() === 'true';
+
     this.transporter = nodemailer.createTransport({
       host: process.env.EMAIL_HOST,
-      port: process.env.EMAIL_PORT,
-      secure: false, // true for 465, false for other ports
+      port,
+      secure,
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
+      },
+      requireTLS,
+      tls: {
+        // Some providers with self-signed certs in dev might need this off
+        rejectUnauthorized,
       },
     });
   }
