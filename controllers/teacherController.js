@@ -225,9 +225,6 @@ module.exports = {
   async getAttendanceSummary(req, res) {
     try {
       const { from, to, classId } = req.query;
-      if (!from || !to) {
-        return res.status(400).json({ success: false, message: 'from and to are required (YYYY-MM-DD)' });
-      }
       if (!classId) {
         return res.status(400).json({ success: false, message: 'classId is required' });
       }
@@ -237,12 +234,36 @@ module.exports = {
         return res.status(403).json({ success: false, message: 'Not authorized for this class' });
       }
 
+      // Optional date filters with default last 30 days
+      const conditions = ['class_id = $1'];
+      const params = [classId];
+      const addDays = (date, days) => {
+        const d = new Date(date);
+        d.setDate(d.getDate() + days);
+        return d;
+      };
+      const fmt = (d) => d.toISOString().slice(0, 10);
+      const today = new Date();
+      if (from) {
+        conditions.push(`date >= $${params.length + 1}`);
+        params.push(from);
+      }
+      if (to) {
+        conditions.push(`date <= $${params.length + 1}`);
+        params.push(to);
+      }
+      if (!from && !to) {
+        const fromDefault = fmt(addDays(today, -30));
+        conditions.push(`date >= $${params.length + 1}`);
+        params.push(fromDefault);
+      }
+
       const summary = await db.query(
         `SELECT status, COUNT(*)::int as count
          FROM attendance
-         WHERE class_id = $1 AND date BETWEEN $2 AND $3
+         WHERE ${conditions.join(' AND ')}
          GROUP BY status`,
-        [classId, from, to]
+        params
       );
 
       res.json({ success: true, message: 'Attendance summary', data: { summary: summary.rows } });

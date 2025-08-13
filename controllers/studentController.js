@@ -4,9 +4,6 @@ module.exports = {
   async getMyAttendance(req, res) {
     try {
       const { from, to } = req.query;
-      if (!from || !to) {
-        return res.status(400).json({ success: false, message: 'from and to are required (YYYY-MM-DD)' });
-      }
 
       // map user -> student
       const student = await db.query('SELECT id FROM students WHERE user_id = $1', [req.user.id]);
@@ -14,6 +11,32 @@ module.exports = {
         return res.status(200).json({ success: true, message: 'No student profile', data: { attendance: [] } });
       }
       const studentId = student.rows[0].id;
+
+      // Optional date filters with default last 30 days
+      const conditions = ['a.student_id = $1'];
+      const params = [studentId];
+
+      const addDays = (date, days) => {
+        const d = new Date(date);
+        d.setDate(d.getDate() + days);
+        return d;
+      };
+      const fmt = (d) => d.toISOString().slice(0, 10);
+      const today = new Date();
+      if (from) {
+        conditions.push(`a.date >= $${params.length + 1}`);
+        params.push(from);
+      }
+      if (to) {
+        conditions.push(`a.date <= $${params.length + 1}`);
+        params.push(to);
+      }
+      if (!from && !to) {
+        // default last 30 days
+        const fromDefault = fmt(addDays(today, -30));
+        conditions.push(`a.date >= $${params.length + 1}`);
+        params.push(fromDefault);
+      }
 
       const rows = await db.query(
         `SELECT a.id AS attendance_id,
@@ -24,9 +47,9 @@ module.exports = {
                 a.notes
          FROM attendance a
          JOIN classes c ON a.class_id = c.id
-         WHERE a.student_id = $1 AND a.date BETWEEN $2 AND $3
+         WHERE ${conditions.join(' AND ')}
          ORDER BY a.date DESC, a.created_at DESC`,
-        [studentId, from, to]
+        params
       );
 
       res.json({ success: true, message: 'Attendance retrieved', data: { attendance: rows.rows } });
@@ -39,9 +62,6 @@ module.exports = {
   async getMyAttendanceSummary(req, res) {
     try {
       const { from, to } = req.query;
-      if (!from || !to) {
-        return res.status(400).json({ success: false, message: 'from and to are required (YYYY-MM-DD)' });
-      }
 
       const student = await db.query('SELECT id FROM students WHERE user_id = $1', [req.user.id]);
       if (student.rows.length === 0) {
@@ -49,12 +69,36 @@ module.exports = {
       }
       const studentId = student.rows[0].id;
 
+      // Optional date filters with default last 30 days
+      const conditions = ['student_id = $1'];
+      const params = [studentId];
+      const addDays = (date, days) => {
+        const d = new Date(date);
+        d.setDate(d.getDate() + days);
+        return d;
+      };
+      const fmt = (d) => d.toISOString().slice(0, 10);
+      const today = new Date();
+      if (from) {
+        conditions.push(`date >= $${params.length + 1}`);
+        params.push(from);
+      }
+      if (to) {
+        conditions.push(`date <= $${params.length + 1}`);
+        params.push(to);
+      }
+      if (!from && !to) {
+        const fromDefault = fmt(addDays(today, -30));
+        conditions.push(`date >= $${params.length + 1}`);
+        params.push(fromDefault);
+      }
+
       const summary = await db.query(
         `SELECT status, COUNT(*)::int as count
          FROM attendance
-         WHERE student_id = $1 AND date BETWEEN $2 AND $3
+         WHERE ${conditions.join(' AND ')}
          GROUP BY status`,
-        [studentId, from, to]
+        params
       );
 
       res.json({ success: true, message: 'Attendance summary', data: { summary: summary.rows } });
