@@ -94,10 +94,10 @@ module.exports = {
       }
 
       const summary = await db.query(
-        `SELECT status, COUNT(*)::int as count
+        `SELECT UPPER(status) AS status, COUNT(*)::int as count
          FROM attendance
          WHERE ${conditions.join(' AND ')}
-         GROUP BY status`,
+         GROUP BY UPPER(status)`,
         params
       );
 
