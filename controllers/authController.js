@@ -435,6 +435,12 @@ class AuthController {
       // Send reset email
       await emailService.sendPasswordResetEmail(email, resetToken, user.first_name);
 
+      // In non-production, also include the reset URL in the API response to ease testing
+      const isNonProd = (process.env.NODE_ENV || 'development') !== 'production';
+      const resetUrlForResponse = isNonProd
+        ? `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`
+        : undefined;
+
       // Log audit
       await db.query(
         `INSERT INTO audit_logs (user_id, action, resource_type, resource_id, details, ip_address, user_agent, device_id)
@@ -450,7 +456,8 @@ class AuthController {
         success: true,
         message: 'If an account with this email exists, a password reset link has been sent',
         data: {
-          reset_email_sent: true
+          reset_email_sent: true,
+          ...(isNonProd ? { reset_token: resetToken, reset_url: resetUrlForResponse } : {})
         }
       });
 
