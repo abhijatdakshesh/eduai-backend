@@ -10,7 +10,8 @@
     "migrate": "node scripts/migrate.js",
     "seed": "node scripts/seed.js",
     "setup": "node scripts/setup.js",
-    "test:smtp": "node scripts/test-smtp.js"
+    "test:smtp": "node scripts/test-smtp.js",
+    "seed:attendance": "node scripts/seed_attendance.js"
   },
   "keywords": [
     "authentication",
