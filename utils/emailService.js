@@ -63,7 +63,7 @@ class EmailService {
     const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
     
     const mailOptions = {
-      from: process.env.EMAIL_FROM,
+      from: process.env.EMAIL_FROM_RESET || process.env.EMAIL_FROM,
       to: email,
       subject: 'Reset Your EduAI Password',
       html: `
