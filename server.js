@@ -19,6 +19,7 @@ const servicesRoutes = require('./routes/services');
 const aiRoutes = require('./routes/ai');
 const staffRoutes = require('./routes/staff');
 const teacherRoutes = require('./routes/teacher');
+const studentRoutes = require('./routes/student');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -113,6 +114,7 @@ app.use(`${BASE_PATH}/services`, servicesRoutes);
 app.use(`${BASE_PATH}/ai`, aiRoutes);
 app.use(`${BASE_PATH}/staff`, staffRoutes);
 app.use(`${BASE_PATH}/teacher`, teacherRoutes);
+app.use(`${BASE_PATH}/student`, studentRoutes);
 app.use('/health', healthRoutes);
 
 // Root endpoint
@@ -136,7 +138,8 @@ app.get('/', (req, res) => {
         services: `${BASE_PATH}/services`,
         ai: `${BASE_PATH}/ai`,
         staff: `${BASE_PATH}/staff`,
-         teacher: `${BASE_PATH}/teacher`,
+        teacher: `${BASE_PATH}/teacher`,
+        student: `${BASE_PATH}/student`,
         health: '/health'
       },
       documentation: 'API documentation available at /docs (if implemented)'
@@ -164,6 +167,7 @@ app.use('*', (req, res) => {
           services: `${BASE_PATH}/services`,
           ai: `${BASE_PATH}/ai`,
           staff: `${BASE_PATH}/staff`,
+          student: `${BASE_PATH}/student`,
           health: '/health'
         }
     }
