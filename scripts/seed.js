@@ -13,6 +13,7 @@ const seedData = async () => {
       ('student@eduai.com', $1, 'John', 'Doe', 'student', '+1234567890', '2000-05-15', 'male'),
       ('teacher@eduai.com', $1, 'Dr. Sarah', 'Johnson', 'teacher', '+1234567891', '1985-03-20', 'female'),
       ('admin@eduai.com', $1, 'Admin', 'User', 'admin', '+1234567892', '1990-01-01', 'male'),
+      ('parent@eduai.com', $1, 'Alex', 'Parent', 'parent', '+1234567895', '1980-04-12', 'female'),
       ('jane.smith@eduai.com', $1, 'Jane', 'Smith', 'student', '+1234567893', '2001-08-10', 'female'),
       ('mike.wilson@eduai.com', $1, 'Mike', 'Wilson', 'student', '+1234567894', '1999-12-25', 'male')
       ON CONFLICT (email) DO UPDATE SET
@@ -147,14 +148,14 @@ const seedData = async () => {
       ON CONFLICT (room_number) DO NOTHING;
     `);
 
-    // Insert sample parents
+    // Insert sample parents (idempotent)
     console.log('Creating sample parents...');
+    const parentUserId = (await db.query(`SELECT id FROM users WHERE email = 'parent@eduai.com' LIMIT 1`)).rows[0].id;
     await db.query(`
-      INSERT INTO parents (user_id, parent_id, relationship, emergency_contact) VALUES
-      ('cd65e412-ac6d-47aa-9866-d729af5b7484', 'P001', 'father', '+1234567890'),
-      ('6f4e4213-82a4-45f0-bf18-499358796b8f', 'P002', 'mother', '+1234567891')
+      INSERT INTO parents (user_id, parent_id, primary_phone, city, state, country, verification_status) VALUES
+      ($1, 'P100', '+1234567895', 'New York', 'NY', 'USA', 'verified')
       ON CONFLICT (parent_id) DO NOTHING;
-    `);
+    `, [parentUserId]);
 
     // Insert sample students (without parent_id for now)
     console.log('Creating sample students...');
@@ -163,6 +164,16 @@ const seedData = async () => {
       ('ed71bb0a-0315-4925-b514-37aeb283d421', 'S001', '10th', '2024-08-01', '2024-2025'),
       ('5acc6a41-7c89-4bec-9909-b458a26a343a', 'S002', '11th', '2024-08-01', '2024-2025')
       ON CONFLICT (student_id) DO NOTHING;
+    `);
+
+    // Link parent to students
+    console.log('Linking parent to students...');
+    await db.query(`
+      INSERT INTO parent_students (parent_id, student_id, relationship, is_primary)
+      VALUES
+      ((SELECT id FROM parents WHERE parent_id = 'P100' LIMIT 1), (SELECT id FROM students WHERE student_id = 'S001' LIMIT 1), 'mother', TRUE),
+      ((SELECT id FROM parents WHERE parent_id = 'P100' LIMIT 1), (SELECT id FROM students WHERE student_id = 'S002' LIMIT 1), 'mother', FALSE)
+      ON CONFLICT (parent_id, student_id) DO NOTHING;
     `);
 
     // Insert sample teachers

@@ -3,12 +3,14 @@ const crypto = require('crypto');
 require('dotenv').config();
 
 class JWTUtils {
-  generateAccessToken(userId, userType) {
+  generateAccessToken(userId, userType, extraClaims = {}) {
     return jwt.sign(
       { 
         userId, 
         userType,
-        type: 'access'
+        role: userType,
+        type: 'access',
+        ...extraClaims
       },
       process.env.JWT_SECRET,
       { 

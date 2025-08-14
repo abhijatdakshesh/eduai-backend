@@ -339,15 +339,59 @@ const createTables = async () => {
       );
     `);
 
-    // Parents table
+    // Parents table (extended)
     await db.query(`
       CREATE TABLE IF NOT EXISTS parents (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id UUID REFERENCES users(id),
         parent_id VARCHAR(20) UNIQUE,
-        relationship VARCHAR(20),
-        emergency_contact VARCHAR(20),
+        primary_phone VARCHAR(20),
+        secondary_phone VARCHAR(20),
+        address_line1 VARCHAR(200),
+        address_line2 VARCHAR(200),
+        city VARCHAR(100),
+        state VARCHAR(100),
+        postal_code VARCHAR(20),
+        country VARCHAR(100),
+        verification_status VARCHAR(20) DEFAULT 'unverified',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Ensure new columns exist on parents table (if older schema was applied)
+    const parentNewCols = [
+      'primary_phone VARCHAR(20)',
+      'secondary_phone VARCHAR(20)',
+      'address_line1 VARCHAR(200)',
+      'address_line2 VARCHAR(200)',
+      'city VARCHAR(100)',
+      'state VARCHAR(100)',
+      'postal_code VARCHAR(20)',
+      'country VARCHAR(100)',
+      "verification_status VARCHAR(20) DEFAULT 'unverified'"
+    ];
+    for (const def of parentNewCols) {
+      const col = def.split(' ')[0];
+      try {
+        await db.query(`ALTER TABLE parents ADD COLUMN ${def}`);
+        console.log(`Added parents.${col}`);
+      } catch (error) {
+        if (error.code !== '42701') { // duplicate_column
+          throw error;
+        }
+      }
+    }
+
+    // Parent-Students junction table
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS parent_students (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        parent_id UUID REFERENCES parents(id) ON DELETE CASCADE,
+        student_id UUID REFERENCES students(id) ON DELETE CASCADE,
+        relationship VARCHAR(20) DEFAULT 'guardian',
+        is_primary BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(parent_id, student_id)
       );
     `);
 
