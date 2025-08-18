@@ -19,6 +19,8 @@ const servicesRoutes = require('./routes/services');
 const aiRoutes = require('./routes/ai');
 const staffRoutes = require('./routes/staff');
 const teacherRoutes = require('./routes/teacher');
+const parentRoutes = require('./routes/parent');
+const attendanceRoutes = require('./routes/attendance');
 const studentRoutes = require('./routes/student');
 
 const app = express();
@@ -114,6 +116,8 @@ app.use(`${BASE_PATH}/services`, servicesRoutes);
 app.use(`${BASE_PATH}/ai`, aiRoutes);
 app.use(`${BASE_PATH}/staff`, staffRoutes);
 app.use(`${BASE_PATH}/teacher`, teacherRoutes);
+app.use(`${BASE_PATH}/parent`, parentRoutes);
+app.use(`${BASE_PATH}/attendance`, attendanceRoutes);
 app.use(`${BASE_PATH}/student`, studentRoutes);
 app.use('/health', healthRoutes);
 
@@ -139,6 +143,7 @@ app.get('/', (req, res) => {
         ai: `${BASE_PATH}/ai`,
         staff: `${BASE_PATH}/staff`,
         teacher: `${BASE_PATH}/teacher`,
+        parent: `${BASE_PATH}/parent`,
         student: `${BASE_PATH}/student`,
         health: '/health'
       },
@@ -167,6 +172,8 @@ app.use('*', (req, res) => {
           services: `${BASE_PATH}/services`,
           ai: `${BASE_PATH}/ai`,
           staff: `${BASE_PATH}/staff`,
+          parent: `${BASE_PATH}/parent`,
+          attendance: `${BASE_PATH}/attendance`,
           student: `${BASE_PATH}/student`,
           health: '/health'
         }

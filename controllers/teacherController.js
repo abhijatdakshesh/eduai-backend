@@ -274,4 +274,101 @@ module.exports = {
   }
 };
 
+// CSV helpers
+const parseCsv = async (buffer) => {
+  const text = buffer.toString('utf-8');
+  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+  const headers = lines.shift().split(',').map(h => h.trim());
+  return lines.map(line => {
+    const cols = line.split(',');
+    const obj = {};
+    headers.forEach((h, i) => obj[h] = (cols[i] || '').trim());
+    return obj;
+  });
+};
+
+module.exports.importAttendanceCsv = async (req, res) => {
+  try {
+    const { classId } = req.params;
+    const owns = await assertTeacherOwnsClass(classId, req.user.id);
+    if (!owns) return res.status(403).json({ success: false, message: 'Not authorized for this class' });
+
+    if (!req.file) return res.status(400).json({ success: false, message: 'CSV file is required' });
+    const rows = await parseCsv(req.file.buffer);
+
+    const date = (req.body && req.body.date) || (rows[0] && rows[0].date);
+    if (!date) return res.status(400).json({ success: false, message: 'date is required (YYYY-MM-DD)' });
+
+    const entries = rows.map(r => ({ student_id: r.student_id || r.student_code, status: (r.status || '').toLowerCase(), notes: r.notes || null }));
+    req.params.classId = classId;
+    req.body = { date, entries };
+    return module.exports.saveAttendanceBulk(req, res);
+  } catch (err) {
+    console.error('importAttendanceCsv error:', err);
+    res.status(500).json({ success: false, message: 'Failed to import CSV' });
+  }
+};
+
+module.exports.exportAttendanceCsv = async (req, res) => {
+  try {
+    const { classId } = req.params;
+    const { date } = req.query;
+    const owns = await assertTeacherOwnsClass(classId, req.user.id);
+    if (!owns) return res.status(403).json({ success: false, message: 'Not authorized for this class' });
+    if (!date) return res.status(400).json({ success: false, message: 'date is required (YYYY-MM-DD)' });
+
+    const rows = await db.query(
+      `SELECT s.student_id AS student_code, u.first_name, u.last_name, a.status, COALESCE(a.notes,'') AS notes
+       FROM student_classes sc
+       JOIN students s ON sc.student_id = s.id
+       JOIN users u ON s.user_id = u.id
+       LEFT JOIN attendance a ON a.student_id = s.id AND a.class_id = sc.class_id AND a.date = $2
+       WHERE sc.class_id = $1
+       ORDER BY u.first_name, u.last_name`,
+      [classId, date]
+    );
+
+    const header = 'student_code,first_name,last_name,status,notes\n';
+    const csv = header + rows.rows.map(r => `${r.student_code},${r.first_name},${r.last_name},${r.status || ''},"${(r.notes || '').replace(/"/g, '""')}"`).join('\n');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="attendance_${classId}_${date}.csv"`);
+    res.status(200).send(csv);
+  } catch (err) {
+    console.error('exportAttendanceCsv error:', err);
+    res.status(500).json({ success: false, message: 'Failed to export CSV' });
+  }
+};
+
+module.exports.getClassAttendanceSummary = async (req, res) => {
+  try {
+    const { classId } = req.params;
+    const { from, to } = req.query;
+    const owns = await assertTeacherOwnsClass(classId, req.user.id);
+    if (!owns) return res.status(403).json({ success: false, message: 'Not authorized for this class' });
+
+    const conditions = ['class_id = $1'];
+    const params = [classId];
+    const addDays = (date, days) => { const d = new Date(date); d.setDate(d.getDate() + days); return d; };
+    const fmt = (d) => d.toISOString().slice(0,10);
+    const today = new Date();
+    if (from) { conditions.push(`date >= $${params.length+1}`); params.push(from); }
+    if (to) { conditions.push(`date <= $${params.length+1}`); params.push(to); }
+    if (!from && !to) { const fromDefault = fmt(addDays(today, -30)); conditions.push(`date >= $${params.length+1}`); params.push(fromDefault); }
+
+    const summary = await db.query(
+      `SELECT UPPER(status) AS status, COUNT(*)::int AS count
+       FROM attendance
+       WHERE ${conditions.join(' AND ')}
+       GROUP BY UPPER(status)`,
+      params
+    );
+    const totals = { PRESENT: 0, ABSENT: 0, LATE: 0, EXCUSED: 0 };
+    for (const r of summary.rows) totals[r.status] = r.count;
+    res.json({ success: true, message: 'Class attendance summary', data: totals });
+  } catch (err) {
+    console.error('getClassAttendanceSummary error:', err);
+    res.status(500).json({ success: false, message: 'Failed to get summary' });
+  }
+};
+
 
