@@ -144,6 +144,7 @@ app.get('/', (req, res) => {
         staff: `${BASE_PATH}/staff`,
         teacher: `${BASE_PATH}/teacher`,
         parent: `${BASE_PATH}/parent`,
+        attendance: `${BASE_PATH}/attendance`,
         student: `${BASE_PATH}/student`,
         health: '/health'
       },
