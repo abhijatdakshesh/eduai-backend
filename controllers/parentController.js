@@ -109,6 +109,50 @@ module.exports = {
     }
   },
 
+  async getChildInfo(req, res) {
+    try {
+      const { studentId } = req.params;
+      
+      const childInfo = await db.query(
+        `SELECT 
+          s.id,
+          s.student_id,
+          s.grade_level,
+          u.first_name,
+          u.last_name,
+          u.email,
+          u.avatar_url,
+          c.name as class_name,
+          t.first_name as teacher_first_name,
+          t.last_name as teacher_last_name
+         FROM students s
+         JOIN users u ON s.user_id = u.id
+         LEFT JOIN student_classes sc ON s.id = sc.student_id
+         LEFT JOIN classes c ON sc.class_id = c.id
+         LEFT JOIN teachers te ON c.teacher_id = te.id
+         LEFT JOIN users t ON te.user_id = t.id
+         WHERE s.id = $1`,
+        [studentId]
+      );
+
+      if (childInfo.rows.length === 0) {
+        return res.status(404).json({ 
+          success: false, 
+          message: 'Child not found' 
+        });
+      }
+
+      res.json({ 
+        success: true, 
+        message: 'Child info retrieved successfully', 
+        data: { child: childInfo.rows[0] } 
+      });
+    } catch (err) {
+      console.error('getChildInfo error:', err);
+      res.status(500).json({ success: false, message: 'Failed to load child info' });
+    }
+  },
+
   async getAnnouncements(req, res) {
     try {
       const { limit = 20, offset = 0 } = req.query;

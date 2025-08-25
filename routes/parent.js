@@ -7,10 +7,11 @@ const parentController = require('../controllers/parentController');
 router.use(authenticateToken, requireUserType(['parent']));
 
 router.get('/dashboard', parentController.getDashboard);
-router.get('/children', parentController.getChildren);
 router.get('/announcements', parentController.getAnnouncements);
-router.get('/children/:studentId/attendance', ensureParentLinkedToStudent, parentController.getChildAttendance);
+router.get('/children/:studentId/info', ensureParentLinkedToStudent, parentController.getChildInfo);
 router.get('/children/:studentId/attendance/summary', ensureParentLinkedToStudent, parentController.getChildAttendanceSummary);
+router.get('/children/:studentId/attendance', ensureParentLinkedToStudent, parentController.getChildAttendance);
+router.get('/children', parentController.getChildren);
 
 module.exports = router;
 
