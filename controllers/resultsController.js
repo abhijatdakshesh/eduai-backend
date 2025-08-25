@@ -6,7 +6,7 @@ const getResults = async (req, res) => {
     const userId = req.user.id;
     const { semester, year } = req.query;
 
-    let whereConditions = ['r.student_id = $1 AND r.is_published = true'];
+    let whereConditions = ['r.student_id = $1'];
     let queryParams = [userId];
     let paramCount = 1;
 
@@ -18,7 +18,7 @@ const getResults = async (req, res) => {
 
     if (year) {
       paramCount++;
-      whereConditions.push(`r.year = $${paramCount}`);
+      whereConditions.push(`r.academic_year = $${paramCount}`);
       queryParams.push(year);
     }
 
@@ -26,11 +26,10 @@ const getResults = async (req, res) => {
       SELECT 
         r.id,
         r.semester,
-        r.year,
+        r.academic_year as year,
         r.grade,
         r.points,
         r.credits,
-        r.published_date,
         c.code as course_code,
         c.name as course_name,
         d.name as department_name
@@ -38,7 +37,7 @@ const getResults = async (req, res) => {
       JOIN courses c ON r.course_id = c.id
       JOIN departments d ON c.department_id = d.id
       WHERE ${whereConditions.join(' AND ')}
-      ORDER BY r.year DESC, r.semester DESC, c.name
+      ORDER BY r.academic_year DESC, r.semester DESC, c.name
     `, queryParams);
 
     res.json({
@@ -67,19 +66,19 @@ const getGPA = async (req, res) => {
         SUM(r.credits) as total_credits,
         COUNT(r.id) as total_courses
       FROM results r
-      WHERE r.student_id = $1 AND r.is_published = true
+      WHERE r.student_id = $1
     `, [userId]);
 
     const semesterGPA = await db.query(`
       SELECT 
         r.semester,
-        r.year,
+        r.academic_year as year,
         AVG(r.points) as gpa,
         SUM(r.credits) as credits
       FROM results r
-      WHERE r.student_id = $1 AND r.is_published = true
-      GROUP BY r.semester, r.year
-      ORDER BY r.year DESC, r.semester DESC
+      WHERE r.student_id = $1
+      GROUP BY r.semester, r.academic_year
+      ORDER BY r.academic_year DESC, r.semester DESC
     `, [userId]);
 
     res.json({
@@ -110,7 +109,7 @@ const getTranscript = async (req, res) => {
     const transcript = await db.query(`
       SELECT 
         r.semester,
-        r.year,
+        r.academic_year as year,
         c.code as course_code,
         c.name as course_name,
         c.credits,
@@ -120,8 +119,8 @@ const getTranscript = async (req, res) => {
       FROM results r
       JOIN courses c ON r.course_id = c.id
       JOIN departments d ON c.department_id = d.id
-      WHERE r.student_id = $1 AND r.is_published = true
-      ORDER BY r.year DESC, r.semester DESC, c.name
+      WHERE r.student_id = $1
+      ORDER BY r.academic_year DESC, r.semester DESC, c.name
     `, [userId]);
 
     res.json({
@@ -139,16 +138,43 @@ const getTranscript = async (req, res) => {
   }
 };
 
+// Get available years
+const getYears = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const years = await db.query(`
+      SELECT DISTINCT academic_year as year
+      FROM results
+      WHERE student_id = $1
+      ORDER BY academic_year DESC
+    `, [userId]);
+
+    res.json({
+      success: true,
+      message: 'Years retrieved successfully',
+      data: years.rows
+    });
+
+  } catch (error) {
+    console.error('Get years error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve years'
+    });
+  }
+};
+
 // Get available semesters
 const getSemesters = async (req, res) => {
   try {
     const userId = req.user.id;
 
     const semesters = await db.query(`
-      SELECT DISTINCT semester, year
+      SELECT DISTINCT semester, academic_year as year
       FROM results
-      WHERE student_id = $1 AND is_published = true
-      ORDER BY year DESC, semester DESC
+      WHERE student_id = $1
+      ORDER BY academic_year DESC, semester DESC
     `, [userId]);
 
     res.json({
@@ -170,5 +196,6 @@ module.exports = {
   getResults,
   getGPA,
   getTranscript,
+  getYears,
   getSemesters
 };

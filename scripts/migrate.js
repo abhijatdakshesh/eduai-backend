@@ -290,7 +290,7 @@ const createTables = async () => {
     // User Sessions table
     await db.query(`
       CREATE TABLE IF NOT EXISTS user_sessions (
-        session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id UUID REFERENCES users(id),
         refresh_token TEXT NOT NULL,
         device_id VARCHAR(100) NOT NULL,

@@ -640,6 +640,78 @@ const getStudentAnalytics = async (req, res) => {
   }
 };
 
+// Attendance Audit
+const getAttendanceAudit = async (req, res) => {
+  try {
+    const { class_id, date, student_id, status } = req.query;
+    
+    let whereConditions = ['1=1'];
+    let queryParams = [];
+    let paramCount = 0;
+
+    if (class_id) {
+      paramCount++;
+      whereConditions.push(`a.class_id = $${paramCount}`);
+      queryParams.push(class_id);
+    }
+
+    if (date) {
+      paramCount++;
+      whereConditions.push(`a.date = $${paramCount}`);
+      queryParams.push(date);
+    }
+
+    if (student_id) {
+      paramCount++;
+      whereConditions.push(`a.student_id = $${paramCount}`);
+      queryParams.push(student_id);
+    }
+
+    if (status) {
+      paramCount++;
+      whereConditions.push(`a.status = $${paramCount}`);
+      queryParams.push(status);
+    }
+
+    const audit = await db.query(`
+      SELECT 
+        a.id,
+        a.date,
+        a.status,
+        a.notes,
+        a.created_at,
+        s.student_id,
+        u.first_name,
+        u.last_name,
+        c.name as class_name,
+        t.first_name as teacher_first_name,
+        t.last_name as teacher_last_name
+      FROM attendance a
+      JOIN students s ON a.student_id = s.id
+      JOIN users u ON s.user_id = u.id
+      JOIN classes c ON a.class_id = c.id
+      JOIN teachers te ON c.teacher_id = te.id
+      JOIN users t ON te.user_id = t.id
+      WHERE ${whereConditions.join(' AND ')}
+      ORDER BY a.date DESC, a.created_at DESC
+      LIMIT 100
+    `, queryParams);
+
+    res.json({
+      success: true,
+      message: 'Attendance audit retrieved successfully',
+      data: { audit: audit.rows }
+    });
+
+  } catch (error) {
+    console.error('Attendance audit error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve attendance audit'
+    });
+  }
+};
+
 module.exports = {
   getDashboardStats,
   getUsers,
@@ -652,5 +724,6 @@ module.exports = {
   createTeacher,
   getClasses,
   createClass,
-  getStudentAnalytics
+  getStudentAnalytics,
+  getAttendanceAudit
 };

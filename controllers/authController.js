@@ -670,7 +670,7 @@ class AuthController {
       if (logout_all_sessions) {
         // Logout from all sessions
         const result = await db.query(
-          'UPDATE user_sessions SET is_active = FALSE WHERE user_id = $1 AND is_active = TRUE RETURNING session_id',
+          'UPDATE user_sessions SET is_active = FALSE WHERE user_id = $1 AND is_active = TRUE RETURNING id',
           [req.user.id]
         );
 
@@ -696,7 +696,7 @@ class AuthController {
       } else {
         // Logout from current session only
         const result = await db.query(
-          'UPDATE user_sessions SET is_active = FALSE WHERE user_id = $1 AND device_id = $2 AND is_active = TRUE RETURNING session_id',
+          'UPDATE user_sessions SET is_active = FALSE WHERE user_id = $1 AND device_id = $2 AND is_active = TRUE RETURNING id',
           [req.user.id, device_id]
         );
 

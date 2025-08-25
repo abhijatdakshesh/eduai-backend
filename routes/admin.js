@@ -30,4 +30,7 @@ router.post('/teachers', adminController.createTeacher);
 router.get('/classes', adminController.getClasses);
 router.post('/classes', adminController.createClass);
 
+// Attendance Management
+router.get('/attendance/audit', adminController.getAttendanceAudit);
+
 module.exports = router;

@@ -8,6 +8,7 @@ router.use(authenticateToken, requireUserType(['parent']));
 
 router.get('/dashboard', parentController.getDashboard);
 router.get('/children', parentController.getChildren);
+router.get('/announcements', parentController.getAnnouncements);
 router.get('/children/:studentId/attendance', ensureParentLinkedToStudent, parentController.getChildAttendance);
 router.get('/children/:studentId/attendance/summary', ensureParentLinkedToStudent, parentController.getChildAttendanceSummary);
 

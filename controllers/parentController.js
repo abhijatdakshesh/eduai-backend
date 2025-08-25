@@ -107,6 +107,30 @@ module.exports = {
       console.error('getChildAttendanceSummary error:', err);
       res.status(500).json({ success: false, message: 'Failed to load summary' });
     }
+  },
+
+  async getAnnouncements(req, res) {
+    try {
+      const { limit = 20, offset = 0 } = req.query;
+      
+      const announcements = await db.query(
+        `SELECT id, title, content, author_id, target_audience, is_published, created_at
+         FROM announcements 
+         WHERE is_published = true
+         ORDER BY created_at DESC
+         LIMIT $1 OFFSET $2`,
+        [limit, offset]
+      );
+
+      res.json({ 
+        success: true, 
+        message: 'Announcements retrieved successfully', 
+        data: { announcements: announcements.rows } 
+      });
+    } catch (err) {
+      console.error('getAnnouncements error:', err);
+      res.status(500).json({ success: false, message: 'Failed to load announcements' });
+    }
   }
 };
 

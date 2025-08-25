@@ -15,6 +15,9 @@ router.get('/gpa', resultsController.getGPA);
 // Get transcript
 router.get('/transcript', resultsController.getTranscript);
 
+// Get years
+router.get('/years', resultsController.getYears);
+
 // Get semesters
 router.get('/semesters', resultsController.getSemesters);
 
