@@ -512,19 +512,71 @@ const createTables = async () => {
       );
     `);
 
-    // Announcements table
+    // Announcements table (extended)
     await db.query(`
       CREATE TABLE IF NOT EXISTS announcements (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         title VARCHAR(200) NOT NULL,
-        content TEXT NOT NULL,
-        author_id UUID REFERENCES users(id),
-        target_audience VARCHAR(50) DEFAULT 'all',
-        is_published BOOLEAN DEFAULT FALSE,
-        published_at TIMESTAMP,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        body TEXT NOT NULL,
+        attachments JSONB DEFAULT '[]'::jsonb,
+        scope_type VARCHAR(20) NOT NULL DEFAULT 'global',
+        scope_id UUID,
+        audience VARCHAR(20) NOT NULL DEFAULT 'both',
+        created_by UUID REFERENCES teachers(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP,
+        pinned BOOLEAN DEFAULT FALSE,
+        is_active BOOLEAN DEFAULT TRUE
       );
     `);
+
+    // Backward-compatibility: add new columns if legacy schema exists
+    const announcementNewCols = [
+      "body TEXT",
+      "attachments JSONB DEFAULT '[]'::jsonb",
+      "scope_type VARCHAR(20) NOT NULL DEFAULT 'global'",
+      "scope_id UUID",
+      "audience VARCHAR(20) NOT NULL DEFAULT 'both'",
+      "created_by UUID REFERENCES teachers(id)",
+      "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+      "expires_at TIMESTAMP",
+      "pinned BOOLEAN DEFAULT FALSE",
+      "is_active BOOLEAN DEFAULT TRUE"
+    ];
+    for (const def of announcementNewCols) {
+      const col = def.split(' ')[0];
+      try {
+        await db.query(`ALTER TABLE announcements ADD COLUMN ${def}`);
+        console.log(`Added announcements.${col}`);
+      } catch (error) {
+        if (error.code !== '42701') { // duplicate_column
+          throw error;
+        }
+      }
+    }
+
+    // Replace legacy content column into body if necessary (best-effort)
+    try {
+      await db.query(`UPDATE announcements SET body = COALESCE(body, content) WHERE body IS NULL AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='announcements' AND column_name='content')`);
+    } catch (error) {
+      // ignore if content doesn't exist
+    }
+
+    // Indexes
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_announcements_scope ON announcements(scope_type, scope_id, created_at DESC)`);
+
+    // Announcement reads table
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS announcement_reads (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        announcement_id UUID REFERENCES announcements(id) ON DELETE CASCADE,
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        read_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(announcement_id, user_id)
+      );
+    `);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_announcement_reads_user ON announcement_reads(user_id)`);
 
     // Attendance table
     await db.query(`
