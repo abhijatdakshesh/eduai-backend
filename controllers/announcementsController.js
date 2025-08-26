@@ -151,7 +151,9 @@ async function listStudentAnnouncements(req, res) {
     if (sRes.rows.length === 0) return res.json({ success: true, message: 'No student profile', data: { announcements: [], paging: { nextCursor: null }, unread_count: 0 } });
     const studentId = sRes.rows[0].id;
 
-    const params = []; const q = { where: ["a.is_active = TRUE", "(a.expires_at IS NULL OR a.expires_at > NOW())"], order: [], limit: 0 };
+    // Params must start with studentId/userId so cursor placeholders compute correctly
+    const params = [studentId, userId];
+    const q = { where: ["a.is_active = TRUE", "(a.expires_at IS NULL OR a.expires_at > NOW())", "a.audience IN ('students','both')"], order: [], limit: 0 };
     if (pinned !== undefined) { params.push(pinned === 'true'); q.where.push(`a.pinned = $${params.length}`); }
     if (classId) { params.push(classId); q.where.push(`(a.scope_type = 'global' OR (a.scope_type = 'class' AND a.scope_id = $${params.length}))`); }
 
@@ -164,7 +166,7 @@ async function listStudentAnnouncements(req, res) {
       WHERE ${q.where.join(' AND ')} AND ${SCOPE_SQL}
       ORDER BY ${q.order.join(', ')}
       LIMIT ${q.limit}
-    `, [studentId, userId, ...params])).rows;
+    `, params)).rows;
 
     const unreadCount = (await db.query(`
       WITH s AS (SELECT id FROM students WHERE id = $1)
@@ -172,7 +174,7 @@ async function listStudentAnnouncements(req, res) {
       FROM announcements a, s
       WHERE ${q.where.join(' AND ')} AND ${SCOPE_SQL}
         AND NOT EXISTS (SELECT 1 FROM announcement_reads ar WHERE ar.announcement_id = a.id AND ar.user_id = $2)
-    `, [studentId, userId, ...params])).rows[0].cnt;
+    `, params)).rows[0].cnt;
 
     const nextCursor = computeNextCursor(rows, pageLimit);
     res.json({ success: true, message: 'Student announcements', data: { announcements: rows.slice(0, pageLimit), paging: { nextCursor }, unread_count: unreadCount } });
@@ -215,7 +217,9 @@ async function listParentAnnouncements(req, res) {
     let targetStudentIds = studentIds;
     if (childId && studentIds.includes(childId)) targetStudentIds = [childId];
 
-    const params = []; const q = { where: ["a.is_active = TRUE", "(a.expires_at IS NULL OR a.expires_at > NOW())"], order: [], limit: 0 };
+    // Params must start with studentIds and userId so cursor placeholders compute correctly
+    const params = [targetStudentIds, userId];
+    const q = { where: ["a.is_active = TRUE", "(a.expires_at IS NULL OR a.expires_at > NOW())", "a.audience IN ('parents','both')"], order: [], limit: 0 };
     if (pinned !== undefined) { params.push(pinned === 'true'); q.where.push(`a.pinned = $${params.length}`); }
 
     const pageLimit = buildCursorPaging(q, params, { limit, after });
@@ -229,7 +233,7 @@ async function listParentAnnouncements(req, res) {
       WHERE ${q.where.join(' AND ')} AND ${SCOPE_SQL}
       ORDER BY ${q.order.join(', ')}
       LIMIT ${q.limit}
-    `, [targetStudentIds, userId, ...params])).rows;
+    `, params)).rows;
 
     const unreadCount = (await db.query(`
       WITH students AS (
@@ -239,7 +243,7 @@ async function listParentAnnouncements(req, res) {
       FROM announcements a, students s
       WHERE ${q.where.join(' AND ')} AND ${SCOPE_SQL}
         AND NOT EXISTS (SELECT 1 FROM announcement_reads ar WHERE ar.announcement_id = a.id AND ar.user_id = $2)
-    `, [targetStudentIds, userId, ...params])).rows[0].cnt;
+    `, params)).rows[0].cnt;
 
     const nextCursor = computeNextCursor(rows, pageLimit);
     res.json({ success: true, message: 'Parent announcements', data: { announcements: rows.slice(0, pageLimit), paging: { nextCursor }, unread_count: unreadCount } });

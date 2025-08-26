@@ -563,6 +563,13 @@ const createTables = async () => {
       // ignore if content doesn't exist
     }
 
+    // Make legacy content column nullable to avoid NOT NULL violations
+    try {
+      await db.query(`ALTER TABLE announcements ALTER COLUMN content DROP NOT NULL`);
+    } catch (error) {
+      // ignore if column missing or already nullable
+    }
+
     // Indexes
     await db.query(`CREATE INDEX IF NOT EXISTS idx_announcements_scope ON announcements(scope_type, scope_id, created_at DESC)`);
 
