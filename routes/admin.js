@@ -1,12 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/adminController');
-const { authenticateToken } = require('../middleware/auth');
-const adminMiddleware = require('../middleware/adminMiddleware');
+const { authenticateToken, requireUserType } = require('../middleware/auth');
 
-// Apply authentication and admin middleware to all routes
+// Apply authentication and admin role guard to all routes
 router.use(authenticateToken);
-router.use(adminMiddleware);
+router.use(requireUserType(['admin']));
 
 // Dashboard Analytics
 router.get('/dashboard/stats', adminController.getDashboardStats);

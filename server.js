@@ -103,23 +103,35 @@ app.set('trust proxy', 1);
 const API_VERSION = 'v1';
 const BASE_PATH = `/api/${API_VERSION}`;
 
-// Routes
-app.use(`${BASE_PATH}/auth`, authRoutes);
-app.use(`${BASE_PATH}/admin`, adminRoutes);
-app.use(`${BASE_PATH}/dashboard`, dashboardRoutes);
-app.use(`${BASE_PATH}/courses`, coursesRoutes);
-app.use(`${BASE_PATH}/schedule`, scheduleRoutes);
-app.use(`${BASE_PATH}/jobs`, jobsRoutes);
-app.use(`${BASE_PATH}/finance`, financeRoutes);
-app.use(`${BASE_PATH}/results`, resultsRoutes);
-app.use(`${BASE_PATH}/services`, servicesRoutes);
-app.use(`${BASE_PATH}/ai`, aiRoutes);
-app.use(`${BASE_PATH}/staff`, staffRoutes);
-app.use(`${BASE_PATH}/teacher`, teacherRoutes);
-app.use(`${BASE_PATH}/parent`, parentRoutes);
-app.use(`${BASE_PATH}/attendance`, attendanceRoutes);
-app.use(`${BASE_PATH}/student`, studentRoutes);
-app.use('/health', healthRoutes);
+// Route registry for consolidated mounting
+const routeRegistry = [
+  { path: `${BASE_PATH}/auth`, router: authRoutes },
+  { path: `${BASE_PATH}/admin`, router: adminRoutes },
+  { path: `${BASE_PATH}/dashboard`, router: dashboardRoutes },
+  { path: `${BASE_PATH}/courses`, router: coursesRoutes },
+  { path: `${BASE_PATH}/schedule`, router: scheduleRoutes },
+  { path: `${BASE_PATH}/jobs`, router: jobsRoutes },
+  { path: `${BASE_PATH}/finance`, router: financeRoutes },
+  { path: `${BASE_PATH}/results`, router: resultsRoutes },
+  { path: `${BASE_PATH}/services`, router: servicesRoutes },
+  { path: `${BASE_PATH}/ai`, router: aiRoutes },
+  { path: `${BASE_PATH}/staff`, router: staffRoutes },
+  { path: `${BASE_PATH}/teacher`, router: teacherRoutes },
+  { path: `${BASE_PATH}/parent`, router: parentRoutes },
+  { path: `${BASE_PATH}/attendance`, router: attendanceRoutes },
+  { path: `${BASE_PATH}/student`, router: studentRoutes },
+  { path: '/health', router: healthRoutes }
+];
+
+// Mount all routes
+routeRegistry.forEach(({ path, router }) => app.use(path, router));
+
+// Build endpoint map for responses
+const endpointMap = routeRegistry.reduce((acc, { path }) => {
+  const key = path.startsWith(BASE_PATH) ? path.slice(BASE_PATH.length + 1) : 'health';
+  acc[key] = path;
+  return acc;
+}, {});
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -130,24 +142,7 @@ app.get('/', (req, res) => {
       version: '1.0.0',
       api_version: API_VERSION,
       base_url: `${req.protocol}://${req.get('host')}${BASE_PATH}`,
-      endpoints: {
-        auth: `${BASE_PATH}/auth`,
-        admin: `${BASE_PATH}/admin`,
-        dashboard: `${BASE_PATH}/dashboard`,
-        courses: `${BASE_PATH}/courses`,
-        schedule: `${BASE_PATH}/schedule`,
-        jobs: `${BASE_PATH}/jobs`,
-        finance: `${BASE_PATH}/finance`,
-        results: `${BASE_PATH}/results`,
-        services: `${BASE_PATH}/services`,
-        ai: `${BASE_PATH}/ai`,
-        staff: `${BASE_PATH}/staff`,
-        teacher: `${BASE_PATH}/teacher`,
-        parent: `${BASE_PATH}/parent`,
-        attendance: `${BASE_PATH}/attendance`,
-        student: `${BASE_PATH}/student`,
-        health: '/health'
-      },
+      endpoints: endpointMap,
       documentation: 'API documentation available at /docs (if implemented)'
     }
   });
@@ -161,23 +156,7 @@ app.use('*', (req, res) => {
     data: {
       requested_url: req.originalUrl,
       method: req.method,
-              available_endpoints: {
-          auth: `${BASE_PATH}/auth`,
-          admin: `${BASE_PATH}/admin`,
-          dashboard: `${BASE_PATH}/dashboard`,
-          courses: `${BASE_PATH}/courses`,
-          schedule: `${BASE_PATH}/schedule`,
-          jobs: `${BASE_PATH}/jobs`,
-          finance: `${BASE_PATH}/finance`,
-          results: `${BASE_PATH}/results`,
-          services: `${BASE_PATH}/services`,
-          ai: `${BASE_PATH}/ai`,
-          staff: `${BASE_PATH}/staff`,
-          parent: `${BASE_PATH}/parent`,
-          attendance: `${BASE_PATH}/attendance`,
-          student: `${BASE_PATH}/student`,
-          health: '/health'
-        }
+      available_endpoints: endpointMap
     }
   });
 });
@@ -218,6 +197,7 @@ app.use((error, req, res, next) => {
 });
 
 // Graceful shutdown
+app.on ? null : null; // no-op to avoid unused warnings if any
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, shutting down gracefully');
   process.exit(0);
