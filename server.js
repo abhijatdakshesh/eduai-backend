@@ -22,6 +22,7 @@ const teacherRoutes = require('./routes/teacher');
 const parentRoutes = require('./routes/parent');
 const attendanceRoutes = require('./routes/attendance');
 const studentRoutes = require('./routes/student');
+const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -161,43 +162,10 @@ app.use('*', (req, res) => {
   });
 });
 
-// Global error handler
-app.use((error, req, res, next) => {
-  console.error('Global error handler:', error);
-  
-  // Handle specific error types
-  if (error.name === 'ValidationError') {
-    return res.status(400).json({
-      success: false,
-      message: 'Validation error',
-      data: {
-        errors: error.errors
-      }
-    });
-  }
-
-  if (error.name === 'UnauthorizedError') {
-    return res.status(401).json({
-      success: false,
-      message: 'Unauthorized access'
-    });
-  }
-
-  // Default error response
-  res.status(500).json({
-    success: false,
-    message: process.env.NODE_ENV === 'production' 
-      ? 'Internal server error' 
-      : error.message,
-    data: process.env.NODE_ENV === 'development' ? {
-      stack: error.stack,
-      name: error.name
-    } : undefined
-  });
-});
+// Centralized error handler
+app.use(errorHandler);
 
 // Graceful shutdown
-app.on ? null : null; // no-op to avoid unused warnings if any
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, shutting down gracefully');
   process.exit(0);
