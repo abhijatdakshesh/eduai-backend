@@ -136,6 +136,14 @@ const createUser = async (req, res) => {
       phone, date_of_birth, gender 
     } = req.body;
 
+    // Basic validation
+    if (!email || !password || !first_name || !last_name || !user_type) {
+      return res.status(400).json({
+        success: false,
+        message: 'email, password, first_name, last_name, and user_type are required'
+      });
+    }
+
     // Check if user already exists
     const existingUser = await db.query('SELECT id FROM users WHERE email = $1', [email]);
     if (existingUser.rows.length > 0) {
@@ -330,6 +338,30 @@ const createStudent = async (req, res) => {
       user_id, student_id, grade_level, enrollment_date, 
       parent_id, academic_year 
     } = req.body;
+
+    // Validate required fields
+    if (!user_id || !student_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'user_id and student_id are required'
+      });
+    }
+
+    // Validate referenced user exists and is of type student (or convertible to student)
+    const userRow = await db.query('SELECT id, user_type, is_active FROM users WHERE id = $1', [user_id]);
+    if (userRow.rows.length === 0) {
+      return res.status(400).json({ success: false, message: 'Referenced user_id does not exist' });
+    }
+    if (!userRow.rows[0].is_active) {
+      return res.status(400).json({ success: false, message: 'Referenced user account is inactive' });
+    }
+    // Optional: enforce user_type
+    // Allow both pre-created students and converting an existing user to student
+    if (userRow.rows[0].user_type !== 'student') {
+      try {
+        await db.query('UPDATE users SET user_type = $1 WHERE id = $2', ['student', user_id]);
+      } catch (_) {}
+    }
 
     // Check if student_id already exists
     const existingStudent = await db.query('SELECT id FROM students WHERE student_id = $1', [student_id]);
@@ -712,6 +744,399 @@ const getAttendanceAudit = async (req, res) => {
   }
 };
 
+// =========================
+// Admin: Extended Endpoints
+// =========================
+
+const updateStudent = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { grade_level, enrollment_date, parent_id, academic_year, status } = req.body;
+    const result = await db.query(`
+      UPDATE students
+      SET grade_level = COALESCE($1, grade_level),
+          enrollment_date = COALESCE($2, enrollment_date),
+          parent_id = COALESCE($3, parent_id),
+          academic_year = COALESCE($4, academic_year),
+          status = COALESCE($5, status)
+      WHERE id = $6
+      RETURNING id, student_id, grade_level, enrollment_date, academic_year, status
+    `, [grade_level, enrollment_date, parent_id, academic_year, status, id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Student not found' });
+    }
+
+    try {
+      await db.query(
+        `INSERT INTO audit_logs (user_id, action, resource_type, resource_id, details)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [req.user.id, 'update', 'student', id, JSON.stringify(req.body)]
+      );
+    } catch (_) {}
+
+    res.json({ success: true, message: 'Student updated', data: { student: result.rows[0] } });
+  } catch (error) {
+    console.error('updateStudent error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update student' });
+  }
+};
+
+const deleteStudent = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const r = await db.query('UPDATE students SET status = $1 WHERE id = $2 RETURNING id', ['inactive', id]);
+    if (r.rows.length === 0) return res.status(404).json({ success: false, message: 'Student not found' });
+    try { await db.query(`INSERT INTO audit_logs (user_id, action, resource_type, resource_id) VALUES ($1,$2,$3,$4)`, [req.user.id, 'delete', 'student', id]); } catch (_) {}
+    res.json({ success: true, message: 'Student deleted' });
+  } catch (error) {
+    console.error('deleteStudent error:', error);
+    res.status(500).json({ success: false, message: 'Failed to delete student' });
+  }
+};
+
+const parseCsvBuffer = async (buffer) => {
+  const text = buffer.toString('utf-8');
+  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+  if (lines.length === 0) return [];
+  const headers = lines.shift().split(',').map(h => h.trim());
+  return lines.map(line => {
+    const cols = line.split(',');
+    const row = {};
+    headers.forEach((h, i) => row[h] = (cols[i] || '').trim());
+    return row;
+  });
+};
+
+const importStudentsCsv = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, message: 'CSV file is required' });
+    const rows = await parseCsvBuffer(req.file.buffer);
+    if (rows.length === 0) return res.status(400).json({ success: false, message: 'CSV is empty' });
+
+    let created = 0, skipped = 0;
+    for (const r of rows) {
+      const studentId = r.student_id || r.studentId || r.admission_no;
+      const userId = r.user_id || r.userId;
+      if (!studentId || !userId) { skipped++; continue; }
+
+      const exists = await db.query('SELECT 1 FROM students WHERE student_id = $1', [studentId]);
+      if (exists.rows.length > 0) { skipped++; continue; }
+
+      await db.query(
+        `INSERT INTO students (user_id, student_id, grade_level, enrollment_date, academic_year)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [userId, studentId, r.grade_level || null, r.enrollment_date || null, r.academic_year || null]
+      );
+      created++;
+    }
+
+    try { await db.query(`INSERT INTO audit_logs (user_id, action, resource_type, details) VALUES ($1,$2,$3,$4)`, [req.user.id, 'import', 'student', JSON.stringify({ created, skipped })]); } catch (_) {}
+
+    res.json({ success: true, message: 'Import complete', data: { created, skipped } });
+  } catch (error) {
+    console.error('importStudentsCsv error:', error);
+    res.status(500).json({ success: false, message: 'Failed to import students' });
+  }
+};
+
+const updateTeacher = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { department, specialization, hire_date, qualification, experience_years, status } = req.body;
+    const r = await db.query(`
+      UPDATE teachers
+      SET department = COALESCE($1, department),
+          specialization = COALESCE($2, specialization),
+          hire_date = COALESCE($3, hire_date),
+          qualification = COALESCE($4, qualification),
+          experience_years = COALESCE($5, experience_years),
+          status = COALESCE($6, status)
+      WHERE id = $7
+      RETURNING id, teacher_id, department, specialization, hire_date, qualification, experience_years, status
+    `, [department, specialization, hire_date, qualification, experience_years, status, id]);
+    if (r.rows.length === 0) return res.status(404).json({ success: false, message: 'Teacher not found' });
+    try { await db.query(`INSERT INTO audit_logs (user_id, action, resource_type, resource_id) VALUES ($1,$2,$3,$4)`, [req.user.id, 'update', 'teacher', id]); } catch (_) {}
+    res.json({ success: true, message: 'Teacher updated', data: { teacher: r.rows[0] } });
+  } catch (error) {
+    console.error('updateTeacher error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update teacher' });
+  }
+};
+
+const deleteTeacher = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const r = await db.query('UPDATE teachers SET status = $1 WHERE id = $2 RETURNING id', ['inactive', id]);
+    if (r.rows.length === 0) return res.status(404).json({ success: false, message: 'Teacher not found' });
+    try { await db.query(`INSERT INTO audit_logs (user_id, action, resource_type, resource_id) VALUES ($1,$2,$3,$4)`, [req.user.id, 'delete', 'teacher', id]); } catch (_) {}
+    res.json({ success: true, message: 'Teacher deleted' });
+  } catch (error) {
+    console.error('deleteTeacher error:', error);
+    res.status(500).json({ success: false, message: 'Failed to delete teacher' });
+  }
+};
+
+const getClassStudents = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const rows = await db.query(`
+      SELECT s.id, s.student_id, u.first_name, u.last_name
+      FROM student_classes sc
+      JOIN students s ON sc.student_id = s.id
+      JOIN users u ON s.user_id = u.id
+      WHERE sc.class_id = $1
+      ORDER BY u.first_name, u.last_name
+    `, [id]);
+    res.json({ success: true, message: 'Class students', data: { students: rows.rows } });
+  } catch (error) {
+    console.error('getClassStudents error:', error);
+    res.status(500).json({ success: false, message: 'Failed to load class students' });
+  }
+};
+
+const getClassTeachers = async (req, res) => {
+  try {
+    const { id } = req.params;
+    // Current schema has one homeroom teacher via classes.teacher_id
+    const rows = await db.query(`
+      SELECT te.id, te.teacher_id, u.first_name, u.last_name
+      FROM classes c
+      LEFT JOIN teachers te ON c.teacher_id = te.id
+      LEFT JOIN users u ON te.user_id = u.id
+      WHERE c.id = $1
+    `, [id]);
+    res.json({ success: true, message: 'Class teachers', data: { teachers: rows.rows.filter(r => r && r.id) } });
+  } catch (error) {
+    console.error('getClassTeachers error:', error);
+    res.status(500).json({ success: false, message: 'Failed to load class teachers' });
+  }
+};
+
+const updateClass = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, grade_level, academic_year, teacher_id, room_id, max_students, status } = req.body;
+    const r = await db.query(`
+      UPDATE classes
+      SET name = COALESCE($1, name),
+          grade_level = COALESCE($2, grade_level),
+          academic_year = COALESCE($3, academic_year),
+          teacher_id = COALESCE($4, teacher_id),
+          room_id = COALESCE($5, room_id),
+          max_students = COALESCE($6, max_students),
+          status = COALESCE($7, status)
+      WHERE id = $8
+      RETURNING id, name, grade_level, academic_year, teacher_id, room_id, max_students, current_students, status
+    `, [name, grade_level, academic_year, teacher_id, room_id, max_students, status, id]);
+    if (r.rows.length === 0) return res.status(404).json({ success: false, message: 'Class not found' });
+    try { await db.query(`INSERT INTO audit_logs (user_id, action, resource_type, resource_id) VALUES ($1,$2,$3,$4)`, [req.user.id, 'update', 'class', id]); } catch (_) {}
+    res.json({ success: true, message: 'Class updated', data: { class: r.rows[0] } });
+  } catch (error) {
+    console.error('updateClass error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update class' });
+  }
+};
+
+const deleteClass = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const r = await db.query('UPDATE classes SET status = $1 WHERE id = $2 RETURNING id', ['inactive', id]);
+    if (r.rows.length === 0) return res.status(404).json({ success: false, message: 'Class not found' });
+    try { await db.query(`INSERT INTO audit_logs (user_id, action, resource_type, resource_id) VALUES ($1,$2,$3,$4)`, [req.user.id, 'delete', 'class', id]); } catch (_) {}
+    res.json({ success: true, message: 'Class deleted' });
+  } catch (error) {
+    console.error('deleteClass error:', error);
+    res.status(500).json({ success: false, message: 'Failed to delete class' });
+  }
+};
+
+const addStudentsToClassBulk = async (req, res) => {
+  const client = await db.pool.connect();
+  try {
+    const { id } = req.params; // class id
+    const { studentIds } = req.body;
+    if (!Array.isArray(studentIds) || studentIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'studentIds array is required' });
+    }
+    await client.query('BEGIN');
+    let added = 0, skipped = 0;
+    for (const sid of studentIds) {
+      try {
+        await client.query(
+          `INSERT INTO student_classes (student_id, class_id) VALUES ($1,$2) ON CONFLICT (student_id, class_id) DO NOTHING`,
+          [sid, id]
+        );
+        const row = await client.query('SELECT 1 FROM student_classes WHERE student_id=$1 AND class_id=$2', [sid, id]);
+        if (row.rows.length > 0) added++; else skipped++;
+      } catch (_) { skipped++; }
+    }
+    await client.query('COMMIT');
+    try { await db.query(`INSERT INTO audit_logs (user_id, action, resource_type, resource_id, details) VALUES ($1,$2,$3,$4,$5)`, [req.user.id, 'enroll_bulk', 'class', id, JSON.stringify({ added, skipped })]); } catch (_) {}
+    res.json({ success: true, message: 'Students added to class', data: { added, skipped } });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('addStudentsToClassBulk error:', error);
+    res.status(500).json({ success: false, message: 'Failed to add students' });
+  } finally {
+    client.release();
+  }
+};
+
+const removeStudentFromClass = async (req, res) => {
+  try {
+    const { id, studentId } = req.params;
+    const r = await db.query('DELETE FROM student_classes WHERE class_id = $1 AND student_id = $2 RETURNING id', [id, studentId]);
+    if (r.rowCount === 0) return res.status(404).json({ success: false, message: 'Enrollment not found' });
+    try { await db.query(`INSERT INTO audit_logs (user_id, action, resource_type, resource_id, details) VALUES ($1,$2,$3,$4,$5)`, [req.user.id, 'unenroll', 'class', id, JSON.stringify({ studentId })]); } catch (_) {}
+    res.json({ success: true, message: 'Student removed from class' });
+  } catch (error) {
+    console.error('removeStudentFromClass error:', error);
+    res.status(500).json({ success: false, message: 'Failed to remove student' });
+  }
+};
+
+const assignTeacherToClass = async (req, res) => {
+  try {
+    const { id } = req.params; // class id
+    const { teacherId } = req.body;
+    if (!teacherId) return res.status(400).json({ success: false, message: 'teacherId is required' });
+    const r = await db.query('UPDATE classes SET teacher_id = $1 WHERE id = $2 RETURNING id, teacher_id', [teacherId, id]);
+    if (r.rows.length === 0) return res.status(404).json({ success: false, message: 'Class not found' });
+    try { await db.query(`INSERT INTO audit_logs (user_id, action, resource_type, resource_id, details) VALUES ($1,$2,$3,$4,$5)`, [req.user.id, 'assign_teacher', 'class', id, JSON.stringify({ teacherId })]); } catch (_) {}
+    res.json({ success: true, message: 'Teacher assigned', data: { class: r.rows[0] } });
+  } catch (error) {
+    console.error('assignTeacherToClass error:', error);
+    res.status(500).json({ success: false, message: 'Failed to assign teacher' });
+  }
+};
+
+const unassignTeacherFromClass = async (req, res) => {
+  try {
+    const { id, teacherId } = req.params;
+    const r = await db.query('UPDATE classes SET teacher_id = NULL WHERE id = $1 AND teacher_id = $2 RETURNING id', [id, teacherId]);
+    if (r.rows.length === 0) return res.status(404).json({ success: false, message: 'Assignment not found' });
+    try { await db.query(`INSERT INTO audit_logs (user_id, action, resource_type, resource_id, details) VALUES ($1,$2,$3,$4,$5)`, [req.user.id, 'unassign_teacher', 'class', id, JSON.stringify({ teacherId })]); } catch (_) {}
+    res.json({ success: true, message: 'Teacher unassigned' });
+  } catch (error) {
+    console.error('unassignTeacherFromClass error:', error);
+    res.status(500).json({ success: false, message: 'Failed to unassign teacher' });
+  }
+};
+
+const getParents = async (req, res) => {
+  try {
+    const { page = 1, limit = 10, search } = req.query;
+    const offset = (page - 1) * limit;
+    const conditions = ['1=1'];
+    const params = [];
+    if (search) { params.push(`%${search}%`); conditions.push(`(u.first_name ILIKE $${params.length} OR u.last_name ILIKE $${params.length} OR u.email ILIKE $${params.length})`); }
+    params.push(limit); params.push(offset);
+    const rows = await db.query(`
+      SELECT p.id, p.parent_id, u.first_name, u.last_name, u.email, p.primary_phone
+      FROM parents p
+      JOIN users u ON p.user_id = u.id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY u.first_name
+      LIMIT $${params.length - 1} OFFSET $${params.length}
+    `, params);
+    res.json({ success: true, message: 'Parents retrieved', data: { parents: rows.rows, pagination: { page: parseInt(page), limit: parseInt(limit) } } });
+  } catch (error) {
+    console.error('getParents error:', error);
+    res.status(500).json({ success: false, message: 'Failed to retrieve parents' });
+  }
+};
+
+const createParent = async (req, res) => {
+  try {
+    const { user_id, parent_id, primary_phone, secondary_phone, address_line1, address_line2, city, state, postal_code, country } = req.body;
+    const exists = await db.query('SELECT 1 FROM parents WHERE parent_id = $1', [parent_id]);
+    if (exists.rows.length > 0) return res.status(400).json({ success: false, message: 'parent_id already exists' });
+    const r = await db.query(`
+      INSERT INTO parents (user_id, parent_id, primary_phone, secondary_phone, address_line1, address_line2, city, state, postal_code, country)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      RETURNING id, parent_id
+    `, [user_id, parent_id, primary_phone, secondary_phone, address_line1, address_line2, city, state, postal_code, country]);
+    try { await db.query(`INSERT INTO audit_logs (user_id, action, resource_type, resource_id) VALUES ($1,$2,$3,$4)`, [req.user.id, 'create', 'parent', r.rows[0].id]); } catch (_) {}
+    res.status(201).json({ success: true, message: 'Parent created', data: { parent: r.rows[0] } });
+  } catch (error) {
+    console.error('createParent error:', error);
+    res.status(500).json({ success: false, message: 'Failed to create parent' });
+  }
+};
+
+const updateParent = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { primary_phone, secondary_phone, address_line1, address_line2, city, state, postal_code, country, verification_status } = req.body;
+    const r = await db.query(`
+      UPDATE parents
+      SET primary_phone = COALESCE($1, primary_phone),
+          secondary_phone = COALESCE($2, secondary_phone),
+          address_line1 = COALESCE($3, address_line1),
+          address_line2 = COALESCE($4, address_line2),
+          city = COALESCE($5, city),
+          state = COALESCE($6, state),
+          postal_code = COALESCE($7, postal_code),
+          country = COALESCE($8, country),
+          verification_status = COALESCE($9, verification_status)
+      WHERE id = $10
+      RETURNING id, parent_id
+    `, [primary_phone, secondary_phone, address_line1, address_line2, city, state, postal_code, country, verification_status, id]);
+    if (r.rows.length === 0) return res.status(404).json({ success: false, message: 'Parent not found' });
+    try { await db.query(`INSERT INTO audit_logs (user_id, action, resource_type, resource_id) VALUES ($1,$2,$3,$4)`, [req.user.id, 'update', 'parent', id]); } catch (_) {}
+    res.json({ success: true, message: 'Parent updated', data: { parent: r.rows[0] } });
+  } catch (error) {
+    console.error('updateParent error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update parent' });
+  }
+};
+
+const deleteParent = async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.query('DELETE FROM parent_students WHERE parent_id = $1', [id]);
+    const r = await db.query('DELETE FROM parents WHERE id = $1 RETURNING id', [id]);
+    if (r.rows.length === 0) return res.status(404).json({ success: false, message: 'Parent not found' });
+    try { await db.query(`INSERT INTO audit_logs (user_id, action, resource_type, resource_id) VALUES ($1,$2,$3,$4)`, [req.user.id, 'delete', 'parent', id]); } catch (_) {}
+    res.json({ success: true, message: 'Parent deleted' });
+  } catch (error) {
+    console.error('deleteParent error:', error);
+    res.status(500).json({ success: false, message: 'Failed to delete parent' });
+  }
+};
+
+const linkParentChild = async (req, res) => {
+  try {
+    const { parentId, studentId } = req.params;
+    const r = await db.query(`
+      INSERT INTO parent_students (parent_id, student_id)
+      VALUES ($1,$2)
+      ON CONFLICT (parent_id, student_id) DO NOTHING
+      RETURNING id
+    `, [parentId, studentId]);
+    if (r.rows.length === 0) return res.status(200).json({ success: true, message: 'Already linked' });
+    try { await db.query(`INSERT INTO audit_logs (user_id, action, resource_type, resource_id, details) VALUES ($1,$2,$3,$4,$5)`, [req.user.id, 'link', 'parent_child', r.rows[0].id, JSON.stringify({ parentId, studentId })]); } catch (_) {}
+    res.status(201).json({ success: true, message: 'Parent linked to child' });
+  } catch (error) {
+    console.error('linkParentChild error:', error);
+    res.status(500).json({ success: false, message: 'Failed to link parent and child' });
+  }
+};
+
+const unlinkParentChild = async (req, res) => {
+  try {
+    const { parentId, studentId } = req.params;
+    const r = await db.query('DELETE FROM parent_students WHERE parent_id = $1 AND student_id = $2 RETURNING id', [parentId, studentId]);
+    if (r.rows.length === 0) return res.status(404).json({ success: false, message: 'Link not found' });
+    try { await db.query(`INSERT INTO audit_logs (user_id, action, resource_type, resource_id, details) VALUES ($1,$2,$3,$4,$5)`, [req.user.id, 'unlink', 'parent_child', r.rows[0].id, JSON.stringify({ parentId, studentId })]); } catch (_) {}
+    res.json({ success: true, message: 'Parent unlinked from child' });
+  } catch (error) {
+    console.error('unlinkParentChild error:', error);
+    res.status(500).json({ success: false, message: 'Failed to unlink parent and child' });
+  }
+};
+
 module.exports = {
   getDashboardStats,
   getUsers,
@@ -725,5 +1150,25 @@ module.exports = {
   getClasses,
   createClass,
   getStudentAnalytics,
-  getAttendanceAudit
+  getAttendanceAudit,
+  // Added admin endpoints per checklist
+  updateStudent,
+  deleteStudent,
+  importStudentsCsv,
+  updateTeacher,
+  deleteTeacher,
+  getClassStudents,
+  getClassTeachers,
+  updateClass,
+  deleteClass,
+  addStudentsToClassBulk,
+  removeStudentFromClass,
+  assignTeacherToClass,
+  unassignTeacherFromClass,
+  getParents,
+  createParent,
+  updateParent,
+  deleteParent,
+  linkParentChild,
+  unlinkParentChild
 };
