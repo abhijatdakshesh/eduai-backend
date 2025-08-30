@@ -1137,6 +1137,127 @@ const unlinkParentChild = async (req, res) => {
   }
 };
 
+// Get single class details
+const getClass = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const result = await db.query(`
+      SELECT 
+        c.id, c.name, c.grade_level, c.academic_year, c.max_students, 
+        c.current_students, c.status, c.created_at,
+        t.id as teacher_id,
+        u.first_name as teacher_first_name, 
+        u.last_name as teacher_last_name,
+        u.email as teacher_email
+      FROM classes c
+      LEFT JOIN teachers t ON c.teacher_id = t.id
+      LEFT JOIN users u ON t.user_id = u.id
+      WHERE c.id = $1
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Class not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Class details retrieved successfully',
+      data: {
+        class: result.rows[0]
+      }
+    });
+
+  } catch (error) {
+    console.error('getClass error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve class details'
+    });
+  }
+};
+
+// Get available students for a class (students not already enrolled)
+const getAvailableStudents = async (req, res) => {
+  try {
+    const { id: classId } = req.params;
+    
+    const result = await db.query(`
+      SELECT 
+        s.id, s.student_id, s.grade_level, s.enrollment_date,
+        u.first_name, u.last_name, u.email, u.phone
+      FROM students s
+      JOIN users u ON s.user_id = u.id
+      WHERE s.status = 'active'
+      AND s.id NOT IN (
+        SELECT student_id 
+        FROM student_classes 
+        WHERE class_id = $1
+      )
+      ORDER BY u.first_name, u.last_name
+    `, [classId]);
+
+    res.json({
+      success: true,
+      message: 'Available students retrieved successfully',
+      data: {
+        students: result.rows
+      }
+    });
+
+  } catch (error) {
+    console.error('getAvailableStudents error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve available students'
+    });
+  }
+};
+
+// Get class attendance
+const getClassAttendance = async (req, res) => {
+  try {
+    const { id: classId } = req.params;
+    const { date } = req.query;
+    
+    // Use provided date or default to today
+    const attendanceDate = date || new Date().toISOString().split('T')[0];
+    
+    const result = await db.query(`
+      SELECT 
+        a.id, a.status, a.notes, a.created_at,
+        s.student_id, s.id as student_record_id,
+        u.first_name, u.last_name, u.email
+      FROM attendance a
+      JOIN students s ON a.student_id = s.id
+      JOIN users u ON s.user_id = u.id
+      JOIN student_classes sc ON s.id = sc.student_id
+      WHERE sc.class_id = $1 
+      AND a.date = $2
+      ORDER BY u.first_name, u.last_name
+    `, [classId, attendanceDate]);
+
+    res.json({
+      success: true,
+      message: 'Class attendance retrieved successfully',
+      data: {
+        attendance: result.rows,
+        date: attendanceDate
+      }
+    });
+
+  } catch (error) {
+    console.error('getClassAttendance error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve class attendance'
+    });
+  }
+};
+
 module.exports = {
   getDashboardStats,
   getUsers,
@@ -1149,6 +1270,7 @@ module.exports = {
   createTeacher,
   getClasses,
   createClass,
+  getClass,
   getStudentAnalytics,
   getAttendanceAudit,
   // Added admin endpoints per checklist
@@ -1159,6 +1281,8 @@ module.exports = {
   deleteTeacher,
   getClassStudents,
   getClassTeachers,
+  getAvailableStudents,
+  getClassAttendance,
   updateClass,
   deleteClass,
   addStudentsToClassBulk,

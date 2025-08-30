@@ -35,14 +35,18 @@ router.delete('/teachers/:id', adminController.deleteTeacher);
 // Class Management
 router.get('/classes', adminController.getClasses);
 router.post('/classes', adminController.createClass);
+router.get('/classes/:id', adminController.getClass);
 router.get('/classes/:id/students', adminController.getClassStudents);
+router.get('/classes/:id/students/available', adminController.getAvailableStudents);
 router.get('/classes/:id/teachers', adminController.getClassTeachers);
 router.patch('/classes/:id', adminController.updateClass);
+router.put('/classes/:id', adminController.updateClass);
 router.delete('/classes/:id', adminController.deleteClass);
 router.post('/classes/:id/students', adminController.addStudentsToClassBulk);
 router.delete('/classes/:id/students/:studentId', adminController.removeStudentFromClass);
 router.post('/classes/:id/teachers', adminController.assignTeacherToClass);
 router.delete('/classes/:id/teachers/:teacherId', adminController.unassignTeacherFromClass);
+router.get('/classes/:id/attendance', adminController.getClassAttendance);
 
 // Parent Management
 router.get('/parents', adminController.getParents);
