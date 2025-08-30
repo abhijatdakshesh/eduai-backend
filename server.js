@@ -22,6 +22,7 @@ const teacherRoutes = require('./routes/teacher');
 const parentRoutes = require('./routes/parent');
 const attendanceRoutes = require('./routes/attendance');
 const studentRoutes = require('./routes/student');
+const classesRoutes = require('./routes/classes');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -121,6 +122,7 @@ const routeRegistry = [
   { path: `${BASE_PATH}/parent`, router: parentRoutes },
   { path: `${BASE_PATH}/attendance`, router: attendanceRoutes },
   { path: `${BASE_PATH}/student`, router: studentRoutes },
+  { path: `${BASE_PATH}/classes`, router: classesRoutes },
   { path: '/health', router: healthRoutes }
 ];
 

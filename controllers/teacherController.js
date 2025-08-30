@@ -39,6 +39,52 @@ module.exports = {
     }
   },
 
+  async getClass(req, res) {
+    try {
+      const { id } = req.params;
+      const owns = await assertTeacherOwnsClass(id, req.user.id);
+      if (!owns) {
+        return res.status(403).json({ success: false, message: 'Not authorized for this class' });
+      }
+
+      const result = await db.query(`
+        SELECT 
+          c.id, c.name, c.grade_level, c.academic_year, c.max_students, 
+          c.current_students, c.status, c.created_at,
+          t.id as teacher_id,
+          u.first_name as teacher_first_name, 
+          u.last_name as teacher_last_name,
+          u.email as teacher_email
+        FROM classes c
+        LEFT JOIN teachers t ON c.teacher_id = t.id
+        LEFT JOIN users u ON t.user_id = u.id
+        WHERE c.id = $1
+      `, [id]);
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'Class not found'
+        });
+      }
+
+      res.json({
+        success: true,
+        message: 'Class details retrieved successfully',
+        data: {
+          class: result.rows[0]
+        }
+      });
+
+    } catch (error) {
+      console.error('getClass error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to retrieve class details'
+      });
+    }
+  },
+
   async getClassRoster(req, res) {
     try {
       const { classId } = req.params;
