@@ -36,7 +36,7 @@ const getCourses = async (req, res) => {
 
     if (year) {
       paramCount++;
-      whereConditions.push(`c.academic_year = $${paramCount}`);
+      whereConditions.push(`c.year = $${paramCount}`);
       queryParams.push(year);
     }
 
@@ -56,7 +56,7 @@ const getCourses = async (req, res) => {
         c.max_enrollment,
         c.current_enrollment,
         c.semester,
-        c.academic_year as year,
+        c.year as year,
         d.name as department_name,
         d.code as department_code,
         u.first_name || ' ' || u.last_name as instructor_name,
@@ -123,7 +123,7 @@ const getCourseById = async (req, res) => {
         c.max_enrollment,
         c.current_enrollment,
         c.semester,
-        c.academic_year as year,
+        c.year as year,
         d.name as department_name,
         d.code as department_code,
         u.first_name || ' ' || u.last_name as instructor_name,
@@ -310,7 +310,7 @@ const getEnrolledCourses = async (req, res) => {
         c.name,
         c.credits,
         c.semester,
-        c.academic_year as year,
+        c.year as year,
         d.name as department_name,
         u.first_name || ' ' || u.last_name as instructor_name,
         e.status,
@@ -322,7 +322,7 @@ const getEnrolledCourses = async (req, res) => {
       JOIN departments d ON c.department_id = d.id
       LEFT JOIN users u ON c.instructor_id = u.id
       WHERE e.student_id = $1
-      ORDER BY c.semester DESC, c.academic_year DESC, c.name
+      ORDER BY c.semester DESC, c.year DESC, c.name
     `, [userId]);
 
     res.json({

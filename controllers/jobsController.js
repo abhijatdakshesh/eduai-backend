@@ -52,6 +52,7 @@ const getJobs = async (req, res) => {
         j.requirements,
         j.posted_date,
         j.deadline,
+        j.application_url,
         COUNT(ja.id) as application_count
       FROM jobs j
       LEFT JOIN job_applications ja ON j.id = ja.job_id
@@ -115,6 +116,7 @@ const getJobById = async (req, res) => {
         j.requirements,
         j.posted_date,
         j.deadline,
+        j.application_url,
         u.first_name || ' ' || u.last_name as posted_by,
         COUNT(ja.id) as application_count,
         CASE WHEN ja2.id IS NOT NULL THEN true ELSE false END as has_applied

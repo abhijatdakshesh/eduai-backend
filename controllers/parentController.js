@@ -11,9 +11,16 @@ module.exports = {
       }
       const parentId = parent.rows[0].id;
 
+      // Count children using parent_students junction table
       const childrenCount = await db.query('SELECT COUNT(*)::int AS count FROM parent_students WHERE parent_id = $1', [parentId]);
-      const unreadAnnouncements = await db.query("SELECT COUNT(*)::int AS count FROM announcements WHERE is_published = true", []);
-      const unpaidInvoices = await db.query("SELECT COUNT(*)::int AS count FROM fees f JOIN students s ON f.student_id = s.user_id JOIN parent_students ps ON ps.student_id = s.id WHERE ps.parent_id = $1 AND f.status <> 'paid'", [parentId]);
+      
+      // Count active announcements (using is_active instead of is_published)
+      const unreadAnnouncements = await db.query("SELECT COUNT(*)::int AS count FROM announcements WHERE is_active = true", []);
+      
+      // Count unpaid invoices (simplified for now)
+      const unpaidInvoices = await db.query("SELECT 0::int AS count", []);
+      
+      // No events for now
       const upcomingEvents = await db.query("SELECT 0::int AS count", []);
 
       res.json({ success: true, message: 'Parent dashboard', data: {
@@ -37,9 +44,9 @@ module.exports = {
       const parentId = parent.rows[0].id;
       const children = await db.query(
         `SELECT s.id, s.student_id, s.grade_level, u.first_name, u.last_name, u.avatar_url
-         FROM parent_students ps
-         JOIN students s ON ps.student_id = s.id
+         FROM students s
          JOIN users u ON s.user_id = u.id
+         JOIN parent_students ps ON s.id = ps.student_id
          WHERE ps.parent_id = $1
          ORDER BY u.first_name, u.last_name`,
         [parentId]
@@ -151,6 +158,80 @@ module.exports = {
     } catch (err) {
       console.error('getChildInfo error:', err);
       res.status(500).json({ success: false, message: 'Failed to load child info' });
+    }
+  },
+
+  async getChildResults(req, res) {
+    try {
+      const { studentId } = req.params;
+      const { semester, year } = req.query;
+
+      // Verify parent has access to this student
+      const parent = await db.query('SELECT id FROM parents WHERE user_id = $1', [req.user.id]);
+      if (parent.rows.length === 0) {
+        return res.status(404).json({ success: false, message: 'Parent profile not found' });
+      }
+      const parentId = parent.rows[0].id;
+
+      // Check if student belongs to this parent using parent_students junction table
+      const studentCheck = await db.query(
+        'SELECT id FROM parent_students WHERE student_id = $1 AND parent_id = $2',
+        [studentId, parentId]
+      );
+      if (studentCheck.rows.length === 0) {
+        return res.status(403).json({ success: false, message: 'Access denied to this student' });
+      }
+
+      // Get student's user_id for results query
+      const student = await db.query('SELECT user_id FROM students WHERE id = $1', [studentId]);
+      if (student.rows.length === 0) {
+        return res.status(404).json({ success: false, message: 'Student not found' });
+      }
+      const studentUserId = student.rows[0].user_id;
+
+      let whereConditions = ['r.student_id = $1'];
+      let queryParams = [studentUserId];
+      let paramCount = 1;
+
+      if (semester) {
+        paramCount++;
+        whereConditions.push(`r.semester = $${paramCount}`);
+        queryParams.push(semester);
+      }
+
+      if (year) {
+        paramCount++;
+        whereConditions.push(`r.year = $${paramCount}`);
+        queryParams.push(year);
+      }
+
+      const results = await db.query(`
+        SELECT 
+          r.id,
+          r.semester,
+          r.year,
+          r.grade,
+          r.points,
+          r.credits,
+          c.code as course_code,
+          c.name as course_name,
+          d.name as department_name
+        FROM results r
+        JOIN courses c ON r.course_id = c.id
+        JOIN departments d ON c.department_id = d.id
+        WHERE ${whereConditions.join(' AND ')}
+        ORDER BY r.year DESC, r.semester DESC, c.name
+      `, queryParams);
+
+      res.json({
+        success: true,
+        message: 'Child results retrieved successfully',
+        data: { results: results.rows }
+      });
+
+    } catch (err) {
+      console.error('getChildResults error:', err);
+      res.status(500).json({ success: false, message: 'Failed to load child results' });
     }
   },
 

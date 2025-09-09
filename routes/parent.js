@@ -14,6 +14,7 @@ router.patch('/announcements/:id/read', announcementsController.markParentAnnoun
 router.get('/children/:studentId/info', ensureParentLinkedToStudent, parentController.getChildInfo);
 router.get('/children/:studentId/attendance/summary', ensureParentLinkedToStudent, parentController.getChildAttendanceSummary);
 router.get('/children/:studentId/attendance', ensureParentLinkedToStudent, parentController.getChildAttendance);
+router.get('/children/:studentId/results', ensureParentLinkedToStudent, parentController.getChildResults);
 router.get('/children', parentController.getChildren);
 
 module.exports = router;

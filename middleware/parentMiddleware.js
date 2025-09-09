@@ -19,9 +19,10 @@ const ensureParentLinkedToStudent = async (req, res, next) => {
     }
     const parentId = parent.rows[0].id;
 
+    // Check if student belongs to this parent using parent_students junction table
     const link = await db.query(
-      'SELECT 1 FROM parent_students WHERE parent_id = $1 AND student_id = $2',
-      [parentId, studentId]
+      'SELECT 1 FROM parent_students WHERE student_id = $1 AND parent_id = $2',
+      [studentId, parentId]
     );
     if (link.rows.length === 0) {
       return res.status(403).json({ success: false, message: 'Not authorized for this student' });

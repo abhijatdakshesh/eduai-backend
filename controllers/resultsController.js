@@ -18,7 +18,7 @@ const getResults = async (req, res) => {
 
     if (year) {
       paramCount++;
-      whereConditions.push(`r.academic_year = $${paramCount}`);
+      whereConditions.push(`r.year = $${paramCount}`);
       queryParams.push(year);
     }
 
@@ -26,7 +26,7 @@ const getResults = async (req, res) => {
       SELECT 
         r.id,
         r.semester,
-        r.academic_year as year,
+        r.year as year,
         r.grade,
         r.points,
         r.credits,
@@ -37,7 +37,7 @@ const getResults = async (req, res) => {
       JOIN courses c ON r.course_id = c.id
       JOIN departments d ON c.department_id = d.id
       WHERE ${whereConditions.join(' AND ')}
-      ORDER BY r.academic_year DESC, r.semester DESC, c.name
+      ORDER BY r.year DESC, r.semester DESC, c.name
     `, queryParams);
 
     res.json({
@@ -72,13 +72,13 @@ const getGPA = async (req, res) => {
     const semesterGPA = await db.query(`
       SELECT 
         r.semester,
-        r.academic_year as year,
+        r.year as year,
         AVG(r.points) as gpa,
         SUM(r.credits) as credits
       FROM results r
       WHERE r.student_id = $1
-      GROUP BY r.semester, r.academic_year
-      ORDER BY r.academic_year DESC, r.semester DESC
+      GROUP BY r.semester, r.year
+      ORDER BY r.year DESC, r.semester DESC
     `, [userId]);
 
     res.json({
@@ -109,7 +109,7 @@ const getTranscript = async (req, res) => {
     const transcript = await db.query(`
       SELECT 
         r.semester,
-        r.academic_year as year,
+        r.year as year,
         c.code as course_code,
         c.name as course_name,
         c.credits,
@@ -120,7 +120,7 @@ const getTranscript = async (req, res) => {
       JOIN courses c ON r.course_id = c.id
       JOIN departments d ON c.department_id = d.id
       WHERE r.student_id = $1
-      ORDER BY r.academic_year DESC, r.semester DESC, c.name
+      ORDER BY r.year DESC, r.semester DESC, c.name
     `, [userId]);
 
     res.json({
@@ -144,10 +144,10 @@ const getYears = async (req, res) => {
     const userId = req.user.id;
 
     const years = await db.query(`
-      SELECT DISTINCT academic_year as year
+      SELECT DISTINCT year as year
       FROM results
       WHERE student_id = $1
-      ORDER BY academic_year DESC
+      ORDER BY year DESC
     `, [userId]);
 
     res.json({
@@ -171,10 +171,10 @@ const getSemesters = async (req, res) => {
     const userId = req.user.id;
 
     const semesters = await db.query(`
-      SELECT DISTINCT semester, academic_year as year
+      SELECT DISTINCT semester, year as year
       FROM results
       WHERE student_id = $1
-      ORDER BY academic_year DESC, semester DESC
+      ORDER BY year DESC, semester DESC
     `, [userId]);
 
     res.json({
