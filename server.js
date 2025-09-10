@@ -23,7 +23,11 @@ const parentRoutes = require('./routes/parent');
 const attendanceRoutes = require('./routes/attendance');
 const studentRoutes = require('./routes/student');
 const classesRoutes = require('./routes/classes');
+const assignmentRoutes = require('./routes/assignments');
+const announcementsRoutes = require('./routes/announcements');
 const errorHandler = require('./middleware/errorHandler');
+const { authenticateToken } = require('./middleware/auth');
+const { authenticateAssignmentFile, authenticateSubmissionFile, serveFile } = require('./middleware/fileAuth');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -123,11 +127,76 @@ const routeRegistry = [
   { path: `${BASE_PATH}/attendance`, router: attendanceRoutes },
   { path: `${BASE_PATH}/student`, router: studentRoutes },
   { path: `${BASE_PATH}/classes`, router: classesRoutes },
+  { path: `${BASE_PATH}/assignments`, router: assignmentRoutes },
+  { path: `${BASE_PATH}/announcements`, router: announcementsRoutes },
   { path: '/health', router: healthRoutes }
 ];
 
 // Mount all routes
 routeRegistry.forEach(({ path, router }) => app.use(path, router));
+
+// Secure file serving routes with authentication (replaces static serving)
+// Support both Authorization header and token query parameter
+
+// Add CORS headers for file access
+app.use('/uploads', (req, res, next) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:8081', 'http://localhost:3000'];
+  
+  // Check if the origin is allowed
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  } else {
+    // Default to first allowed origin if origin not in list
+    res.header('Access-Control-Allow-Origin', allowedOrigins[0]);
+  }
+  
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  next();
+});
+app.get('/uploads/assignments/:filename', (req, res, next) => {
+  // Check for token in query parameter first, then in Authorization header
+  const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
+  
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      message: 'Token required. Provide token as query parameter (?token=...) or Authorization header.'
+    });
+  }
+  
+  // Set the token in the Authorization header for the middleware
+  req.headers.authorization = `Bearer ${token}`;
+  next();
+}, authenticateToken, authenticateAssignmentFile, (req, res) => {
+  req.params.type = 'assignments';
+  serveFile(req, res);
+});
+
+app.get('/uploads/submissions/:filename', (req, res, next) => {
+  // Check for token in query parameter first, then in Authorization header
+  const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
+  
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      message: 'Token required. Provide token as query parameter (?token=...) or Authorization header.'
+    });
+  }
+  
+  // Set the token in the Authorization header for the middleware
+  req.headers.authorization = `Bearer ${token}`;
+  next();
+}, authenticateToken, authenticateSubmissionFile, (req, res) => {
+  req.params.type = 'submissions';
+  serveFile(req, res);
+});
 
 // Build endpoint map for responses
 const endpointMap = routeRegistry.reduce((acc, { path }) => {

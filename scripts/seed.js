@@ -40,7 +40,7 @@ const seedData = async () => {
 
     // Create sample courses
     const courses = await db.query(`
-      INSERT INTO courses (code, name, description, credits, department_id, instructor_id, max_enrollment, current_enrollment, semester, academic_year) VALUES
+      INSERT INTO courses (code, name, description, credits, department_id, instructor_id, max_enrollment, current_enrollment, semester, year) VALUES
       ('CS101', 'Introduction to Computer Science', 'Basic concepts of programming and computer science', 3, $1, $2, 50, 25, 'Fall', 2024),
       ('CS201', 'Data Structures and Algorithms', 'Advanced programming concepts and algorithm design', 4, $1, $2, 40, 20, 'Fall', 2024),
       ('EE101', 'Electrical Engineering Fundamentals', 'Basic electrical engineering concepts', 3, $3, $2, 45, 30, 'Fall', 2024),
@@ -55,7 +55,7 @@ const seedData = async () => {
         max_enrollment = EXCLUDED.max_enrollment,
         current_enrollment = EXCLUDED.current_enrollment,
         semester = EXCLUDED.semester,
-        academic_year = EXCLUDED.academic_year
+        year = EXCLUDED.year
       RETURNING id, code, name;
     `, [csDept.id, teacher.id, eeDept.id, baDept.id]);
 
