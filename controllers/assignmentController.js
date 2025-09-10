@@ -575,6 +575,14 @@ module.exports = {
            VALUES ($1,$2,$3,$4) RETURNING *`,
           [assignmentId, studentId, submissionText || null, JSON.stringify(newAttachments)]
         );
+        // Write history snapshot version 1
+        try {
+          await db.query(
+            `INSERT INTO submission_history (submission_id, version, submission_text, attachments, updated_by)
+             VALUES ($1, 1, $2, $3, $4)`,
+            [inserted.rows[0].id, submissionText || null, JSON.stringify(newAttachments), req.user.id]
+          );
+        } catch (e) { console.error('history insert error:', e); }
         return res.status(201).json({ success: true, message: 'Submission created', data: { submission: inserted.rows[0] } });
       }
 
@@ -603,16 +611,29 @@ module.exports = {
         updatedAttachments = [...currentAttachments, ...newAttachments];
       }
 
+      // Increment version and persist
+      const newVersion = (current.version || 1) + 1;
       const updated = await db.query(
         `UPDATE assignment_submissions
          SET submission_text = COALESCE($1, submission_text),
              attachments = $2,
              grade = NULL,
              feedback = NULL,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = $3 RETURNING *`,
-        [submissionText || null, JSON.stringify(updatedAttachments), current.id]
+             updated_at = CURRENT_TIMESTAMP,
+             updated_by = $3,
+             version = $4
+         WHERE id = $5 RETURNING *`,
+        [submissionText || null, JSON.stringify(updatedAttachments), req.user.id, newVersion, current.id]
       );
+
+      // Save snapshot in history
+      try {
+        await db.query(
+          `INSERT INTO submission_history (submission_id, version, submission_text, attachments, updated_by)
+           VALUES ($1,$2,$3,$4,$5)`,
+          [current.id, newVersion, submissionText || current.submission_text, JSON.stringify(updatedAttachments), req.user.id]
+        );
+      } catch (e) { console.error('history insert error:', e); }
 
       return res.json({ success: true, message: 'Submission updated', data: { submission: updated.rows[0] } });
     } catch (error) {
@@ -682,6 +703,47 @@ module.exports = {
     } catch (error) {
       console.error('Delete submission attachment error:', error);
       res.status(500).json({ success: false, message: 'Failed to remove attachment' });
+    }
+  },
+
+  // Optional: get submission history (RBAC: student owner, class teacher, or admin)
+  async getSubmissionHistory(req, res) {
+    try {
+      const { submissionId } = req.params;
+
+      const subRes = await db.query(
+        `SELECT s.*, a.class_id, a.teacher_id, st.user_id AS student_user_id, t.user_id AS teacher_user_id
+         FROM assignment_submissions s
+         JOIN assignments a ON s.assignment_id = a.id
+         JOIN students st ON s.student_id = st.id
+         JOIN teachers t ON a.teacher_id = t.id
+         WHERE s.id = $1`,
+        [submissionId]
+      );
+      if (subRes.rows.length === 0) {
+        return res.status(404).json({ success: false, message: 'Submission not found' });
+      }
+      const sub = subRes.rows[0];
+
+      const isOwner = sub.student_user_id === req.user.id;
+      const isTeacher = sub.teacher_user_id === req.user.id;
+      const isAdmin = req.user.user_type === 'admin';
+      if (!isOwner && !isTeacher && !isAdmin) {
+        return res.status(403).json({ success: false, message: 'Not authorized to view history' });
+      }
+
+      const hist = await db.query(
+        `SELECT id, version, submission_text, attachments, updated_by, updated_at
+         FROM submission_history
+         WHERE submission_id = $1
+         ORDER BY version DESC, updated_at DESC`,
+        [submissionId]
+      );
+
+      res.json({ success: true, message: 'Submission history', data: { history: hist.rows } });
+    } catch (error) {
+      console.error('Get submission history error:', error);
+      res.status(500).json({ success: false, message: 'Failed to get submission history' });
     }
   },
 

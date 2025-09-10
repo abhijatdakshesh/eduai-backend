@@ -585,6 +585,55 @@ const createTables = async () => {
     `);
     await db.query(`CREATE INDEX IF NOT EXISTS idx_announcement_reads_user ON announcement_reads(user_id)`);
 
+    // --- Assignment submissions versioning additions ---
+    // Add columns to assignment_submissions if missing
+    try {
+      await db.query(`ALTER TABLE assignment_submissions ADD COLUMN version INT NOT NULL DEFAULT 1`);
+      console.log('Added assignment_submissions.version');
+    } catch (error) {
+      if (error.code !== '42701') { // duplicate_column
+        throw error;
+      }
+    }
+    try {
+      await db.query(`ALTER TABLE assignment_submissions ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE`);
+      console.log('Added assignment_submissions.updated_at');
+    } catch (error) {
+      if (error.code !== '42701') {
+        throw error;
+      }
+    }
+    try {
+      await db.query(`ALTER TABLE assignment_submissions ADD COLUMN updated_by UUID`);
+      console.log('Added assignment_submissions.updated_by');
+    } catch (error) {
+      if (error.code !== '42701') {
+        throw error;
+      }
+    }
+    try {
+      await db.query(`ALTER TABLE assignment_submissions ADD COLUMN last_updated_reason TEXT`);
+      console.log('Added assignment_submissions.last_updated_reason');
+    } catch (error) {
+      if (error.code !== '42701') {
+        throw error;
+      }
+    }
+
+    // Create submission_history table
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS submission_history (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        submission_id UUID NOT NULL REFERENCES assignment_submissions(id) ON DELETE CASCADE,
+        version INT NOT NULL,
+        submission_text TEXT,
+        attachments JSONB,
+        updated_by UUID,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+    `);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_submission_history_submission ON submission_history(submission_id, version DESC)`);
+
     // Attendance table
     await db.query(`
       CREATE TABLE IF NOT EXISTS attendance (

@@ -27,6 +27,7 @@ router.get('/student/assignments/:assignmentId', requireUserType(['student']), a
 router.post('/student/assignments/:assignmentId/submit', requireUserType(['student']), uploadSubmissionMiddleware, handleUploadError, assignmentController.submitAssignment);
 router.put('/student/assignments/:assignmentId/submission', requireUserType(['student']), uploadSubmissionMiddleware, handleUploadError, assignmentController.upsertSubmission);
 router.delete('/student/submissions/:submissionId/attachments/:attachmentId', requireUserType(['student','teacher']), assignmentController.deleteSubmissionAttachment);
+router.get('/student/submissions/:submissionId/history', requireUserType(['student','teacher','admin']), assignmentController.getSubmissionHistory);
 
 // Admin routes (optional - for admin to view all assignments)
 router.get('/admin/assignments', requireUserType(['admin']), assignmentController.getTeacherAssignments);
