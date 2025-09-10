@@ -1,5 +1,7 @@
 const db = require('../config/database');
 const { formatFileInfo, getFileUrl } = require('../middleware/upload');
+const fs = require('fs');
+const path = require('path');
 
 // Helper function to check if teacher owns the class
 async function assertTeacherOwnsClass(classId, userId) {
@@ -501,6 +503,185 @@ module.exports = {
         success: false,
         message: 'Failed to submit assignment'
       });
+    }
+  },
+
+  // Student: update or create (upsert) their submission with optional attachment replace
+  async upsertSubmission(req, res) {
+    try {
+      const { assignmentId } = req.params;
+      const { submissionText, replaceAttachments } = req.body || {};
+
+      // Resolve student id
+      const student = await db.query('SELECT id FROM students WHERE user_id = $1', [req.user.id]);
+      if (student.rows.length === 0) {
+        return res.status(404).json({ success: false, message: 'Student profile not found' });
+      }
+      const studentId = student.rows[0].id;
+
+      // Load assignment with class and due date; allow flag optional
+      const assignmentRes = await db.query(
+        `SELECT a.*, COALESCE(a.allow_updates_after_due, FALSE) AS allow_updates_after_due
+         FROM assignments a WHERE a.id = $1`,
+        [assignmentId]
+      );
+      if (assignmentRes.rows.length === 0) {
+        return res.status(404).json({ success: false, message: 'Assignment not found' });
+      }
+      const assignment = assignmentRes.rows[0];
+
+      // Enrollment check
+      const inClass = await assertStudentInClass(assignment.class_id, req.user.id);
+      if (!inClass) {
+        return res.status(403).json({ success: false, message: 'Not authorized to update this assignment' });
+      }
+
+      // Due date validation
+      const now = new Date();
+      const dueOk = !assignment.due_date || new Date(assignment.due_date) >= now || assignment.allow_updates_after_due === true;
+      if (!dueOk) {
+        return res.status(403).json({ success: false, message: 'Resubmission not allowed after due date' });
+      }
+
+      // Fetch existing submission if any
+      const existingRes = await db.query(
+        `SELECT * FROM assignment_submissions WHERE assignment_id = $1 AND student_id = $2`,
+        [assignmentId, studentId]
+      );
+
+      // New attachments from upload
+      let newAttachments = [];
+      if (req.files && req.files.length > 0) {
+        newAttachments = formatFileInfo(req.files).map(file => ({
+          ...file,
+          url: getFileUrl(req, file.path)
+        }));
+      }
+
+      // Helper to parse JSON attachments safely
+      const parseAttachments = (raw) => {
+        try {
+          if (!raw) return [];
+          if (Array.isArray(raw)) return raw;
+          if (typeof raw === 'string') return JSON.parse(raw);
+          return [];
+        } catch (_) { return []; }
+      };
+
+      if (existingRes.rows.length === 0) {
+        // Create new submission (upsert behavior when none exists)
+        const inserted = await db.query(
+          `INSERT INTO assignment_submissions (assignment_id, student_id, submission_text, attachments)
+           VALUES ($1,$2,$3,$4) RETURNING *`,
+          [assignmentId, studentId, submissionText || null, JSON.stringify(newAttachments)]
+        );
+        return res.status(201).json({ success: true, message: 'Submission created', data: { submission: inserted.rows[0] } });
+      }
+
+      const current = existingRes.rows[0];
+      const currentAttachments = parseAttachments(current.attachments);
+
+      let updatedAttachments = currentAttachments;
+      if (replaceAttachments === 'true' || replaceAttachments === true) {
+        // Delete old files from disk when we know they are local
+        try {
+          for (const att of currentAttachments) {
+            if (att && att.filename) {
+              const filePath = path.join(__dirname, '../uploads/submissions', att.filename);
+              if (fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath);
+              }
+            }
+          }
+        } catch (e) {
+          // Log and continue; do not fail the whole request on unlink
+          console.error('Attachment cleanup error:', e);
+        }
+        updatedAttachments = newAttachments;
+      } else {
+        // Append
+        updatedAttachments = [...currentAttachments, ...newAttachments];
+      }
+
+      const updated = await db.query(
+        `UPDATE assignment_submissions
+         SET submission_text = COALESCE($1, submission_text),
+             attachments = $2,
+             grade = NULL,
+             feedback = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $3 RETURNING *`,
+        [submissionText || null, JSON.stringify(updatedAttachments), current.id]
+      );
+
+      return res.json({ success: true, message: 'Submission updated', data: { submission: updated.rows[0] } });
+    } catch (error) {
+      console.error('Upsert submission error:', error);
+      res.status(500).json({ success: false, message: 'Failed to update submission' });
+    }
+  },
+
+  // Delete a specific attachment from a submission (student owner or class teacher)
+  async deleteSubmissionAttachment(req, res) {
+    try {
+      const { submissionId, attachmentId } = req.params;
+
+      // Load submission with assignment and student
+      const subRes = await db.query(
+        `SELECT s.*, a.class_id, a.teacher_id, st.user_id AS student_user_id, t.user_id AS teacher_user_id
+         FROM assignment_submissions s
+         JOIN assignments a ON s.assignment_id = a.id
+         JOIN students st ON s.student_id = st.id
+         JOIN teachers t ON a.teacher_id = t.id
+         WHERE s.id = $1`,
+        [submissionId]
+      );
+      if (subRes.rows.length === 0) {
+        return res.status(404).json({ success: false, message: 'Submission not found' });
+      }
+      const sub = subRes.rows[0];
+
+      // Authorization: student owner or teacher of the class
+      const isOwner = sub.student_user_id === req.user.id;
+      const isTeacher = sub.teacher_user_id === req.user.id;
+      if (!isOwner && !isTeacher) {
+        return res.status(403).json({ success: false, message: 'Not authorized to modify this submission' });
+      }
+
+      // Parse attachments and remove target
+      const parseAttachments = (raw) => {
+        try {
+          if (!raw) return [];
+          if (Array.isArray(raw)) return raw;
+          if (typeof raw === 'string') return JSON.parse(raw);
+          return [];
+        } catch (_) { return []; }
+      };
+      const currentAttachments = parseAttachments(sub.attachments);
+      const remaining = currentAttachments.filter(att => att && att.filename !== attachmentId);
+      const removed = currentAttachments.find(att => att && att.filename === attachmentId);
+
+      if (!removed) {
+        return res.status(404).json({ success: false, message: 'Attachment not found' });
+      }
+
+      // Delete file from disk if it's a local upload
+      try {
+        const filePath = path.join(__dirname, '../uploads/submissions', removed.filename);
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      } catch (e) {
+        console.error('Attachment unlink error:', e);
+      }
+
+      const updated = await db.query(
+        `UPDATE assignment_submissions SET attachments = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *`,
+        [JSON.stringify(remaining), submissionId]
+      );
+
+      res.json({ success: true, message: 'Attachment removed', data: { submission: updated.rows[0] } });
+    } catch (error) {
+      console.error('Delete submission attachment error:', error);
+      res.status(500).json({ success: false, message: 'Failed to remove attachment' });
     }
   },
 
