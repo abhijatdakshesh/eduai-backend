@@ -439,6 +439,19 @@ const createTables = async () => {
       );
     `);
 
+    // Sections table
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS sections (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(10) NOT NULL,
+        department_id UUID REFERENCES departments(id),
+        academic_year VARCHAR(10),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(name, department_id, academic_year)
+      );
+    `);
+
     // Classes table
     await db.query(`
       CREATE TABLE IF NOT EXISTS classes (
@@ -446,6 +459,7 @@ const createTables = async () => {
         name VARCHAR(100) NOT NULL,
         grade_level VARCHAR(10),
         academic_year VARCHAR(10),
+        section_id UUID REFERENCES sections(id),
         teacher_id UUID REFERENCES teachers(id),
         room_id UUID REFERENCES rooms(id),
         max_students INTEGER DEFAULT 30,
@@ -490,10 +504,38 @@ const createTables = async () => {
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         student_id UUID REFERENCES students(id),
         class_id UUID REFERENCES classes(id),
+        section_id UUID REFERENCES sections(id),
         enrollment_date DATE DEFAULT CURRENT_DATE,
         status VARCHAR(20) DEFAULT 'active',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(student_id, class_id)
+      );
+    `);
+
+    // Section Students table (for direct section enrollment)
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS section_students (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        section_id UUID REFERENCES sections(id) ON DELETE CASCADE,
+        student_id UUID REFERENCES students(id) ON DELETE CASCADE,
+        enrollment_date DATE DEFAULT CURRENT_DATE,
+        status VARCHAR(20) DEFAULT 'active',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(section_id, student_id)
+      );
+    `);
+
+    // Section Teachers table (for section-level teacher assignments)
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS section_teachers (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        section_id UUID REFERENCES sections(id) ON DELETE CASCADE,
+        teacher_id UUID REFERENCES teachers(id) ON DELETE CASCADE,
+        role VARCHAR(20) DEFAULT 'homeroom',
+        assigned_date DATE DEFAULT CURRENT_DATE,
+        status VARCHAR(20) DEFAULT 'active',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(section_id, teacher_id, role)
       );
     `);
 
@@ -661,6 +703,13 @@ const createTables = async () => {
       }
     }
 
+    // Indexes for sections
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_sections_department ON sections(department_id, academic_year);`);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_section_students_section ON section_students(section_id);`);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_section_students_student ON section_students(student_id);`);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_section_teachers_section ON section_teachers(section_id);`);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_section_teachers_teacher ON section_teachers(teacher_id);`);
+
     // Insert default departments
     await db.query(`
       INSERT INTO departments (name, code, description) VALUES
@@ -685,7 +734,7 @@ const createTables = async () => {
     `);
 
     console.log('✅ Database migration completed successfully!');
-    console.log('📊 Created tables: users, departments, courses, enrollments, schedule, jobs, job_applications, fees, payments, scholarships, scholarship_applications, results, campus_services, service_bookings, chat_history, notifications, user_sessions, audit_logs, verification_tokens, parents, students, teachers, rooms, classes, student_classes, student_courses, announcements, attendance');
+    console.log('📊 Created tables: users, departments, courses, enrollments, schedule, jobs, job_applications, fees, payments, scholarships, scholarship_applications, results, campus_services, service_bookings, chat_history, notifications, user_sessions, audit_logs, verification_tokens, parents, students, teachers, rooms, sections, classes, student_classes, section_students, section_teachers, student_courses, announcements, attendance');
 
   } catch (error) {
     console.error('❌ Migration failed:', error);

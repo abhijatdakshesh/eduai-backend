@@ -25,6 +25,7 @@ const studentRoutes = require('./routes/student');
 const classesRoutes = require('./routes/classes');
 const assignmentRoutes = require('./routes/assignments');
 const announcementsRoutes = require('./routes/announcements');
+const sectionsRoutes = require('./routes/sections');
 const errorHandler = require('./middleware/errorHandler');
 const { authenticateToken } = require('./middleware/auth');
 const { authenticateAssignmentFile, authenticateSubmissionFile, serveFile } = require('./middleware/fileAuth');
@@ -129,6 +130,7 @@ const routeRegistry = [
   { path: `${BASE_PATH}/classes`, router: classesRoutes },
   { path: `${BASE_PATH}/assignments`, router: assignmentRoutes },
   { path: `${BASE_PATH}/announcements`, router: announcementsRoutes },
+  { path: `${BASE_PATH}/sections`, router: sectionsRoutes },
   { path: '/health', router: healthRoutes }
 ];
 
