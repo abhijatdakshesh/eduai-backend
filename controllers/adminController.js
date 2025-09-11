@@ -3,47 +3,64 @@ const db = require('../config/database');
 // Dashboard Analytics
 const getDashboardStats = async (req, res) => {
   try {
-    // Get total counts
-    const studentsCount = await db.query('SELECT COUNT(*) as count FROM students WHERE status = $1', ['active']);
-    const teachersCount = await db.query('SELECT COUNT(*) as count FROM teachers WHERE status = $1', ['active']);
-    const classesCount = await db.query('SELECT COUNT(*) as count FROM classes WHERE status = $1', ['active']);
-    const coursesCount = await db.query('SELECT COUNT(*) as count FROM courses', []);
+    // Totals
+    const studentsCount = await db.query(`SELECT COUNT(*)::int AS count FROM students WHERE status = 'active'`);
+    const teachersCount = await db.query(`SELECT COUNT(*)::int AS count FROM teachers WHERE status = 'active'`);
+    const classesCount = await db.query(`SELECT COUNT(*)::int AS count FROM classes WHERE status = 'active'`);
+    const coursesCount = await db.query(`SELECT COUNT(*)::int AS count FROM courses`);
+    const parentsCount = await db.query(`SELECT COUNT(*)::int AS count FROM parents`);
 
-    // Get recent enrollments
-    const recentEnrollments = await db.query(`
-      SELECT sc.enrollment_date, s.student_id, u.first_name, u.last_name, c.name as class_name
-      FROM student_classes sc
-      JOIN students s ON sc.student_id = s.id
-      JOIN users u ON s.user_id = u.id
-      JOIN classes c ON sc.class_id = c.id
-      ORDER BY sc.enrollment_date DESC
-      LIMIT 5
-    `);
+    // Active enrollments (class enrollments)
+    const activeEnrollments = await db.query(`SELECT COUNT(*)::int AS count FROM student_classes`);
 
-    // Get attendance stats
+    // Attendance rate (today)
     const attendanceStats = await db.query(`
       SELECT 
-        COUNT(*) as total_records,
-        COUNT(CASE WHEN status = 'present' THEN 1 END) as present_count,
-        COUNT(CASE WHEN status = 'absent' THEN 1 END) as absent_count
+        COUNT(*)::int AS total_records,
+        COUNT(CASE WHEN status = 'present' THEN 1 END)::int AS present_count
       FROM attendance
       WHERE date = CURRENT_DATE
     `);
+    const totalRecords = attendanceStats.rows[0].total_records || 0;
+    const presentCount = attendanceStats.rows[0].present_count || 0;
+    const attendanceRate = totalRecords > 0 ? Math.round((presentCount / totalRecords) * 100) : 0;
+
+    // Average GPA across all published results (fallback to enrollments points if present)
+    const avgGpaResult = await db.query(`
+      SELECT ROUND(AVG(points)::numeric, 2) AS avg_points FROM results WHERE points IS NOT NULL AND (is_published = TRUE OR is_published IS NULL)
+    `);
+    const averageGPA = Number(avgGpaResult.rows[0].avg_points || 0);
+
+    // New enrollments (students created in last 30 days by enrollment_date)
+    const newEnrollments = await db.query(`
+      SELECT COUNT(*)::int AS count FROM students WHERE enrollment_date >= CURRENT_DATE - INTERVAL '30 days'
+    `);
+
+    // Pending approvals (scholarship applications pending, if table exists)
+    let pendingApprovalsCount = 0;
+    try {
+      const pending = await db.query(`SELECT COUNT(*)::int AS count FROM scholarship_applications WHERE status = 'pending'`);
+      pendingApprovalsCount = pending.rows[0].count || 0;
+    } catch (_) {
+      pendingApprovalsCount = 0;
+    }
 
     res.json({
       success: true,
       message: 'Admin dashboard stats retrieved successfully',
       data: {
         stats: {
-          total_students: parseInt(studentsCount.rows[0].count),
-          total_teachers: parseInt(teachersCount.rows[0].count),
-          total_classes: parseInt(classesCount.rows[0].count),
-          total_courses: parseInt(coursesCount.rows[0].count),
-          attendance_rate: attendanceStats.rows[0].total_records > 0 
-            ? Math.round((attendanceStats.rows[0].present_count / attendanceStats.rows[0].total_records) * 100)
-            : 0
-        },
-        recent_enrollments: recentEnrollments.rows
+          totalStudents: studentsCount.rows[0].count,
+          totalTeachers: teachersCount.rows[0].count,
+          totalClasses: classesCount.rows[0].count,
+          totalCourses: coursesCount.rows[0].count,
+          totalParents: parentsCount.rows[0].count,
+          activeEnrollments: activeEnrollments.rows[0].count,
+          attendanceRate: attendanceRate,
+          averageGPA: averageGPA,
+          newEnrollments: newEnrollments.rows[0].count,
+          pendingApprovals: pendingApprovalsCount
+        }
       }
     });
 

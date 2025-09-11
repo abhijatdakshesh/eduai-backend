@@ -15,10 +15,10 @@ router.post('/',
   sectionController.createSection
 );
 
-// Get all sections with filtering (Admin only)
+// Get all sections with filtering (Admin + Teacher)
 router.get('/', 
   authenticateToken, 
-  requireUserType(['admin']), 
+  requireUserType(['admin', 'teacher']), 
   sectionController.getSections
 );
 
@@ -27,6 +27,20 @@ router.get('/:id',
   authenticateToken, 
   requireUserType(['admin']), 
   sectionController.getSection
+);
+
+// Get section students (Admin only)
+router.get('/:id/students',
+  authenticateToken,
+  requireUserType(['admin']),
+  sectionController.listSectionStudents
+);
+
+// Get section teachers (Admin only)
+router.get('/:id/teachers',
+  authenticateToken,
+  requireUserType(['admin']),
+  sectionController.listSectionTeachers
 );
 
 // Update section (Admin only)

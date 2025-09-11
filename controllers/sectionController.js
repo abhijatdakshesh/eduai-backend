@@ -7,7 +7,7 @@ const db = require('../config/database');
 // Create a new section
 const createSection = async (req, res) => {
   try {
-    const { name, department_id, academic_year } = req.body;
+    const { name, department_id, academic_year, year, semester } = req.body;
 
     // Validate required fields
     if (!name || !department_id || !academic_year) {
@@ -15,6 +15,29 @@ const createSection = async (req, res) => {
         success: false,
         message: 'name, department_id, and academic_year are required'
       });
+    }
+
+    // Validate ranges if provided
+    if (year !== undefined) {
+      const y = Number(year);
+      if (!Number.isInteger(y) || y < 1 || y > 4) {
+        return res.status(400).json({ success: false, message: 'year must be an integer in [1..4]' });
+      }
+    }
+    if (semester !== undefined) {
+      const s = Number(semester);
+      if (!Number.isInteger(s) || s < 1 || s > 8) {
+        return res.status(400).json({ success: false, message: 'semester must be an integer in [1..8]' });
+      }
+    }
+    // Validate consistency if both provided
+    if (year !== undefined && semester !== undefined) {
+      const y = Number(year);
+      const s = Number(semester);
+      const validSemestersForYear = new Set([(y - 1) * 2 + 1, (y - 1) * 2 + 2]);
+      if (!validSemestersForYear.has(s)) {
+        return res.status(400).json({ success: false, message: 'semester is not consistent with year' });
+      }
     }
 
     // Validate department exists
@@ -26,24 +49,21 @@ const createSection = async (req, res) => {
       });
     }
 
-    // Check if section already exists for this department and academic year
+    // Check if section already exists per (department_id, year, semester, name)
     const existingSection = await db.query(
-      'SELECT id FROM sections WHERE name = $1 AND department_id = $2 AND academic_year = $3',
-      [name, department_id, academic_year]
+      'SELECT id FROM sections WHERE name = $1 AND department_id = $2 AND COALESCE(year, -1) = COALESCE($3, -1) AND COALESCE(semester, -1) = COALESCE($4, -1)',
+      [name, department_id, year ?? null, semester ?? null]
     );
     if (existingSection.rows.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Section already exists for this department and academic year'
-      });
+      return res.status(409).json({ success: false, message: 'Section already exists for this department, year, semester and name' });
     }
 
     // Create section
     const sectionResult = await db.query(`
-      INSERT INTO sections (name, department_id, academic_year)
-      VALUES ($1, $2, $3)
-      RETURNING id, name, department_id, academic_year, created_at
-    `, [name, department_id, academic_year]);
+      INSERT INTO sections (name, department_id, academic_year, year, semester)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING id, name, department_id, academic_year, year, semester, created_at
+    `, [name, department_id, academic_year, year ?? null, semester ?? null]);
 
     const section = sectionResult.rows[0];
 
@@ -51,7 +71,7 @@ const createSection = async (req, res) => {
     try {
       await db.query(
         'INSERT INTO audit_logs (user_id, action, resource_type, resource_id, details) VALUES ($1, $2, $3, $4, $5)',
-        [req.user.id, 'create', 'section', section.id, JSON.stringify({ name, department_id, academic_year })]
+        [req.user.id, 'create', 'section', section.id, JSON.stringify({ name, department_id, academic_year, year, semester })]
       );
     } catch (error) {
       console.log('Audit log error:', error.message);
@@ -75,8 +95,9 @@ const createSection = async (req, res) => {
 // Get all sections with optional filtering
 const getSections = async (req, res) => {
   try {
-    const { department_id, academic_year, page = 1, limit = 10 } = req.query;
-    const offset = (page - 1) * limit;
+    const { department_id, year, semester, academic_year, search, page = 1, page_size } = req.query;
+    const limit = parseInt(page_size || req.query.limit || 10);
+    const offset = (parseInt(page) - 1) * limit;
 
     let whereConditions = ['1=1'];
     let queryParams = [];
@@ -88,10 +109,34 @@ const getSections = async (req, res) => {
       queryParams.push(department_id);
     }
 
-    if (academic_year) {
+    // Default to latest academic_year if not provided
+    let academicYearFilter = academic_year;
+    if (!academicYearFilter) {
+      const latestYear = await db.query('SELECT COALESCE(MAX(academic_year), EXTRACT(YEAR FROM CURRENT_DATE)::INT) AS latest FROM sections');
+      academicYearFilter = latestYear.rows[0]?.latest;
+    }
+    if (academicYearFilter) {
       paramCount++;
       whereConditions.push(`s.academic_year = $${paramCount}`);
-      queryParams.push(academic_year);
+      queryParams.push(academicYearFilter);
+    }
+
+    if (year) {
+      paramCount++;
+      whereConditions.push(`s.year = $${paramCount}`);
+      queryParams.push(year);
+    }
+
+    if (semester) {
+      paramCount++;
+      whereConditions.push(`s.semester = $${paramCount}`);
+      queryParams.push(semester);
+    }
+
+    if (search) {
+      paramCount++;
+      whereConditions.push(`(s.name ILIKE $${paramCount})`);
+      queryParams.push(`%${search}%`);
     }
 
     paramCount++;
@@ -99,10 +144,17 @@ const getSections = async (req, res) => {
     paramCount++;
     queryParams.push(offset);
 
+    // If requester is a teacher, limit to sections they teach
+    if (req.user.user_type === 'teacher') {
+      paramCount++;
+      whereConditions.push(`s.id IN (SELECT section_id FROM section_teachers WHERE teacher_id = (SELECT id FROM teachers WHERE user_id = $${paramCount}) AND status = 'active')`);
+      queryParams.push(req.user.id);
+    }
+
     const query = `
       SELECT 
-        s.id, s.name, s.department_id, s.academic_year, s.created_at, s.updated_at,
-        d.name as department_name, d.code as department_code,
+        s.id, s.name, s.department_id, s.academic_year, s.year, s.semester, s.created_at, s.updated_at,
+        d.name as department, d.code as department_code,
         COUNT(DISTINCT ss.student_id) as student_count,
         COUNT(DISTINCT st.teacher_id) as teacher_count
       FROM sections s
@@ -110,8 +162,8 @@ const getSections = async (req, res) => {
       LEFT JOIN section_students ss ON s.id = ss.section_id AND ss.status = 'active'
       LEFT JOIN section_teachers st ON s.id = st.section_id AND st.status = 'active'
       WHERE ${whereConditions.join(' AND ')}
-      GROUP BY s.id, s.name, s.department_id, s.academic_year, s.created_at, s.updated_at, d.name, d.code
-      ORDER BY s.academic_year DESC, s.name ASC
+      GROUP BY s.id, s.name, s.department_id, s.academic_year, s.year, s.semester, s.created_at, s.updated_at, d.name, d.code
+      ORDER BY s.academic_year DESC, s.year NULLS LAST, s.semester NULLS LAST, s.name ASC
       LIMIT $${paramCount - 1} OFFSET $${paramCount}
     `;
 
@@ -157,8 +209,8 @@ const getSection = async (req, res) => {
 
     const sectionResult = await db.query(`
       SELECT 
-        s.id, s.name, s.department_id, s.academic_year, s.created_at, s.updated_at,
-        d.name as department_name, d.code as department_code
+        s.id, s.name, s.department_id, s.academic_year, s.year, s.semester, s.created_at, s.updated_at,
+        d.name as department, d.code as department_code
       FROM sections s
       JOIN departments d ON s.department_id = d.id
       WHERE s.id = $1
@@ -218,11 +270,81 @@ const getSection = async (req, res) => {
   }
 };
 
+// List students in a section
+const listSectionStudents = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Ensure section exists
+    const section = await db.query('SELECT id FROM sections WHERE id = $1', [id]);
+    if (section.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Section not found' });
+    }
+
+    const studentsResult = await db.query(`
+      SELECT 
+        ss.id, ss.enrollment_date, ss.status,
+        s.id as student_record_id, s.student_id, s.grade_level,
+        u.first_name, u.last_name, u.email, u.phone
+      FROM section_students ss
+      JOIN students s ON ss.student_id = s.id
+      JOIN users u ON s.user_id = u.id
+      WHERE ss.section_id = $1
+      ORDER BY u.first_name, u.last_name
+    `, [id]);
+
+    return res.json({
+      success: true,
+      message: 'Section students retrieved successfully',
+      data: { students: studentsResult.rows }
+    });
+
+  } catch (error) {
+    console.error('listSectionStudents error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to retrieve section students' });
+  }
+};
+
+// List teachers assigned to a section
+const listSectionTeachers = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Ensure section exists
+    const section = await db.query('SELECT id FROM sections WHERE id = $1', [id]);
+    if (section.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Section not found' });
+    }
+
+    const teachersResult = await db.query(`
+      SELECT 
+        st.id, st.role, st.assigned_date, st.status,
+        t.id as teacher_record_id, t.teacher_id, t.department, t.specialization,
+        u.first_name, u.last_name, u.email, u.phone
+      FROM section_teachers st
+      JOIN teachers t ON st.teacher_id = t.id
+      JOIN users u ON t.user_id = u.id
+      WHERE st.section_id = $1
+      ORDER BY st.role, u.first_name, u.last_name
+    `, [id]);
+
+    return res.json({
+      success: true,
+      message: 'Section teachers retrieved successfully',
+      data: { teachers: teachersResult.rows }
+    });
+
+  } catch (error) {
+    console.error('listSectionTeachers error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to retrieve section teachers' });
+  }
+};
+
 // Update section
 const updateSection = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, department_id, academic_year } = req.body;
+    const { name, department_id, academic_year, year, semester } = req.body;
 
     // Check if section exists
     const existingSection = await db.query('SELECT id FROM sections WHERE id = $1', [id]);
@@ -233,27 +355,48 @@ const updateSection = async (req, res) => {
       });
     }
 
+    // Validate ranges
+    if (year !== undefined) {
+      const y = Number(year);
+      if (!Number.isInteger(y) || y < 1 || y > 4) {
+        return res.status(400).json({ success: false, message: 'year must be an integer in [1..4]' });
+      }
+    }
+    if (semester !== undefined) {
+      const s = Number(semester);
+      if (!Number.isInteger(s) || s < 1 || s > 8) {
+        return res.status(400).json({ success: false, message: 'semester must be an integer in [1..8]' });
+      }
+    }
+    if (year !== undefined && semester !== undefined) {
+      const y = Number(year);
+      const s = Number(semester);
+      const validSemestersForYear = new Set([(y - 1) * 2 + 1, (y - 1) * 2 + 2]);
+      if (!validSemestersForYear.has(s)) {
+        return res.status(400).json({ success: false, message: 'semester is not consistent with year' });
+      }
+    }
+
     // If changing name/department/academic_year, check for conflicts
-    if (name || department_id || academic_year) {
+    if (name || department_id || academic_year || year !== undefined || semester !== undefined) {
       const currentSection = await db.query(
-        'SELECT name, department_id, academic_year FROM sections WHERE id = $1',
+        'SELECT name, department_id, academic_year, year, semester FROM sections WHERE id = $1',
         [id]
       );
       
-      const newName = name || currentSection.rows[0].name;
-      const newDepartmentId = department_id || currentSection.rows[0].department_id;
-      const newAcademicYear = academic_year || currentSection.rows[0].academic_year;
+      const newName = name ?? currentSection.rows[0].name;
+      const newDepartmentId = department_id ?? currentSection.rows[0].department_id;
+      const newAcademicYear = academic_year ?? currentSection.rows[0].academic_year;
+      const newYear = (year !== undefined) ? year : currentSection.rows[0].year;
+      const newSemester = (semester !== undefined) ? semester : currentSection.rows[0].semester;
 
       const conflictCheck = await db.query(
-        'SELECT id FROM sections WHERE name = $1 AND department_id = $2 AND academic_year = $3 AND id != $4',
-        [newName, newDepartmentId, newAcademicYear, id]
+        'SELECT id FROM sections WHERE name = $1 AND department_id = $2 AND COALESCE(year, -1) = COALESCE($3, -1) AND COALESCE(semester, -1) = COALESCE($4, -1) AND id != $5',
+        [newName, newDepartmentId, newYear ?? null, newSemester ?? null, id]
       );
       
       if (conflictCheck.rows.length > 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'Section with this name already exists for the department and academic year'
-        });
+        return res.status(409).json({ success: false, message: 'Section with this name already exists for department/year/semester' });
       }
     }
 
@@ -263,10 +406,12 @@ const updateSection = async (req, res) => {
       SET name = COALESCE($1, name),
           department_id = COALESCE($2, department_id),
           academic_year = COALESCE($3, academic_year),
+          year = COALESCE($4, year),
+          semester = COALESCE($5, semester),
           updated_at = CURRENT_TIMESTAMP
-      WHERE id = $4
-      RETURNING id, name, department_id, academic_year, created_at, updated_at
-    `, [name, department_id, academic_year, id]);
+      WHERE id = $6
+      RETURNING id, name, department_id, academic_year, year, semester, created_at, updated_at
+    `, [name ?? null, department_id ?? null, academic_year ?? null, year ?? null, semester ?? null, id]);
 
     const section = updateResult.rows[0];
 
@@ -591,7 +736,8 @@ const assignTeacherToSection = async (req, res) => {
     const result = await db.query(`
       INSERT INTO section_teachers (section_id, teacher_id, role)
       VALUES ($1, $2, $3)
-      ON CONFLICT (section_id, teacher_id, role) DO UPDATE SET
+      ON CONFLICT (section_id, teacher_id) DO UPDATE SET
+        role = EXCLUDED.role,
         status = 'active',
         assigned_date = CURRENT_DATE
       RETURNING id, section_id, teacher_id, role, assigned_date, status
@@ -667,10 +813,11 @@ const removeTeacherFromSection = async (req, res) => {
 const getAvailableTeachersForSection = async (req, res) => {
   try {
     const { id: sectionId } = req.params;
+    const { department_id, year, semester } = req.query;
 
     // Get section details to determine department
     const section = await db.query(
-      'SELECT department_id FROM sections WHERE id = $1',
+      'SELECT department_id, year as section_year, semester as section_semester FROM sections WHERE id = $1',
       [sectionId]
     );
 
@@ -681,7 +828,7 @@ const getAvailableTeachersForSection = async (req, res) => {
       });
     }
 
-    const departmentId = section.rows[0].department_id;
+    const departmentId = department_id || section.rows[0].department_id;
 
     // Get teachers from the same department who are not already assigned to this section
     const teachers = await db.query(`
@@ -691,14 +838,14 @@ const getAvailableTeachersForSection = async (req, res) => {
       FROM teachers t
       JOIN users u ON t.user_id = u.id
       WHERE t.status = 'active'
-      AND t.department = (SELECT code FROM departments WHERE id = $1)
+      AND ($1::INT IS NULL OR t.department = (SELECT code FROM departments WHERE id = $1))
       AND t.id NOT IN (
         SELECT st.teacher_id 
         FROM section_teachers st
         WHERE st.section_id = $2 AND st.status = 'active'
       )
       ORDER BY u.first_name, u.last_name
-    `, [departmentId, sectionId]);
+    `, [departmentId || null, sectionId]);
 
     res.json({
       success: true,
@@ -733,5 +880,7 @@ module.exports = {
   // Section-Teacher Assignment
   assignTeacherToSection,
   removeTeacherFromSection,
-  getAvailableTeachersForSection
+  getAvailableTeachersForSection,
+  listSectionStudents,
+  listSectionTeachers
 };
