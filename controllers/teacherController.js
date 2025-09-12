@@ -417,4 +417,290 @@ module.exports.getClassAttendanceSummary = async (req, res) => {
   }
 };
 
+// =========================
+// Teacher Attendance Flow Methods
+// =========================
+
+// Get departments available to teacher
+module.exports.getDepartments = async (req, res) => {
+  try {
+    const departments = await db.query(`
+      SELECT d.id, d.name, d.code, d.description
+      FROM departments d
+      ORDER BY d.name
+    `);
+
+    res.json({ 
+      success: true, 
+      message: 'Departments retrieved successfully', 
+      data: { departments: departments.rows } 
+    });
+  } catch (error) {
+    console.error('getDepartments error:', error);
+    res.status(500).json({ success: false, message: 'Failed to retrieve departments' });
+  }
+};
+
+// Get sections by department
+module.exports.getSectionsByDepartment = async (req, res) => {
+  try {
+    const { departmentId } = req.params;
+
+    // Validate department exists
+    const department = await db.query('SELECT id, name FROM departments WHERE id = $1', [departmentId]);
+    if (department.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Department not found' });
+    }
+
+    // Get sections for the department
+    const sections = await db.query(`
+      SELECT DISTINCT s.name as section
+      FROM sections s
+      WHERE s.department_id = $1
+      ORDER BY s.name
+    `, [departmentId]);
+
+    // If no sections found, return default sections
+    const sectionList = sections.rows.length > 0 
+      ? sections.rows.map(row => row.section)
+      : ['A', 'B', 'C', 'D'];
+
+    res.json({ 
+      success: true, 
+      message: 'Sections retrieved successfully', 
+      data: { 
+        department: department.rows[0],
+        sections: sectionList 
+      } 
+    });
+  } catch (error) {
+    console.error('getSectionsByDepartment error:', error);
+    res.status(500).json({ success: false, message: 'Failed to retrieve sections' });
+  }
+};
+
+// Get students by department, section, and time
+module.exports.getStudentsByDepartmentSectionTime = async (req, res) => {
+  try {
+    const { departmentId, section, timeSlot, date } = req.query;
+
+    if (!departmentId || !section || !timeSlot || !date) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'departmentId, section, timeSlot, and date are required' 
+      });
+    }
+
+    // Get students enrolled in the specific section
+    const students = await db.query(`
+      SELECT DISTINCT
+        s.id as student_id,
+        s.student_id as student_code,
+        u.first_name,
+        u.last_name,
+        u.email
+      FROM students s
+      JOIN users u ON s.user_id = u.id
+      JOIN section_students ss ON s.id = ss.student_id
+      JOIN sections sec ON ss.section_id = sec.id
+      WHERE sec.department_id = $1 
+        AND sec.name = $2
+        AND ss.status = 'active'
+        AND s.status = 'active'
+      ORDER BY u.first_name, u.last_name
+    `, [departmentId, section]);
+
+    res.json({ 
+      success: true, 
+      message: 'Students retrieved successfully', 
+      data: { students: students.rows } 
+    });
+  } catch (error) {
+    console.error('getStudentsByDepartmentSectionTime error:', error);
+    res.status(500).json({ success: false, message: 'Failed to retrieve students' });
+  }
+};
+
+// Save attendance with department/section/time context
+module.exports.saveDepartmentSectionAttendance = async (req, res) => {
+  try {
+    const { departmentId, section, timeSlot, date, entries } = req.body;
+
+    if (!departmentId || !section || !timeSlot || !date || !Array.isArray(entries)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'departmentId, section, timeSlot, date, and entries are required' 
+      });
+    }
+
+    // Get teacher ID
+    const teacher = await db.query('SELECT id FROM teachers WHERE user_id = $1', [req.user.id]);
+    if (teacher.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Teacher profile not found' });
+    }
+    const teacherId = teacher.rows[0].id;
+
+    // Validate statuses
+    const allowedStatuses = new Set(['present', 'absent', 'late', 'excused']);
+    for (const entry of entries) {
+      if (entry.status && !allowedStatuses.has(entry.status)) {
+        return res.status(400).json({ success: false, message: `Invalid status: ${entry.status}` });
+      }
+    }
+
+    // Start transaction
+    await db.query('BEGIN');
+
+    try {
+      // Create or get teacher attendance record
+      const attendanceResult = await db.query(`
+        INSERT INTO teacher_attendance (teacher_id, department_id, section, time_slot, date)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (teacher_id, department_id, section, time_slot, date)
+        DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+        RETURNING id
+      `, [teacherId, departmentId, section, timeSlot, date]);
+
+      const attendanceId = attendanceResult.rows[0].id;
+
+      // Clear existing entries for this attendance record
+      await db.query('DELETE FROM student_attendance_entries WHERE attendance_id = $1', [attendanceId]);
+
+      // Insert new attendance entries
+      let savedCount = 0;
+      for (const entry of entries) {
+        const status = entry.status || 'present';
+        const notes = entry.notes || null;
+        
+        await db.query(`
+          INSERT INTO student_attendance_entries (attendance_id, student_id, status, notes)
+          VALUES ($1, $2, $3, $4)
+        `, [attendanceId, entry.student_id, status, notes]);
+        savedCount++;
+      }
+
+      await db.query('COMMIT');
+
+      // Audit log
+      try {
+        await db.query(
+          `INSERT INTO audit_logs (user_id, action, resource_type, resource_id, details)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            req.user.id,
+            'save_department_section_attendance',
+            'teacher_attendance',
+            attendanceId,
+            JSON.stringify({ departmentId, section, timeSlot, date, entries_count: entries.length })
+          ]
+        );
+      } catch (e) {
+        console.warn('audit log failed:', e.message);
+      }
+
+      res.json({ 
+        success: true, 
+        message: 'Attendance saved successfully', 
+        data: { 
+          attendanceId,
+          savedCount,
+          departmentId,
+          section,
+          timeSlot,
+          date
+        } 
+      });
+
+    } catch (error) {
+      await db.query('ROLLBACK');
+      throw error;
+    }
+
+  } catch (error) {
+    console.error('saveDepartmentSectionAttendance error:', error);
+    res.status(500).json({ success: false, message: 'Failed to save attendance' });
+  }
+};
+
+// Get existing attendance records for department/section/time
+module.exports.getDepartmentSectionAttendance = async (req, res) => {
+  try {
+    const { departmentId, section, timeSlot, date } = req.query;
+
+    if (!departmentId || !section || !timeSlot || !date) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'departmentId, section, timeSlot, and date are required' 
+      });
+    }
+
+    // Get teacher ID
+    const teacher = await db.query('SELECT id FROM teachers WHERE user_id = $1', [req.user.id]);
+    if (teacher.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Teacher profile not found' });
+    }
+    const teacherId = teacher.rows[0].id;
+
+    // Get attendance record with entries
+    const attendance = await db.query(`
+      SELECT 
+        ta.id as attendance_id,
+        ta.teacher_id,
+        ta.department_id,
+        ta.section,
+        ta.time_slot,
+        ta.date,
+        ta.created_at,
+        ta.updated_at
+      FROM teacher_attendance ta
+      WHERE ta.teacher_id = $1 
+        AND ta.department_id = $2 
+        AND ta.section = $3 
+        AND ta.time_slot = $4 
+        AND ta.date = $5
+    `, [teacherId, departmentId, section, timeSlot, date]);
+
+    if (attendance.rows.length === 0) {
+      return res.json({ 
+        success: true, 
+        message: 'No attendance record found', 
+        data: { attendance: null, entries: [] } 
+      });
+    }
+
+    const attendanceId = attendance.rows[0].attendance_id;
+
+    // Get attendance entries
+    const entries = await db.query(`
+      SELECT 
+        sae.id,
+        sae.student_id,
+        sae.status,
+        sae.notes,
+        sae.created_at,
+        s.student_id as student_code,
+        u.first_name,
+        u.last_name
+      FROM student_attendance_entries sae
+      JOIN students s ON sae.student_id = s.id
+      JOIN users u ON s.user_id = u.id
+      WHERE sae.attendance_id = $1
+      ORDER BY u.first_name, u.last_name
+    `, [attendanceId]);
+
+    res.json({ 
+      success: true, 
+      message: 'Attendance record retrieved successfully', 
+      data: { 
+        attendance: attendance.rows[0],
+        entries: entries.rows
+      } 
+    });
+
+  } catch (error) {
+    console.error('getDepartmentSectionAttendance error:', error);
+    res.status(500).json({ success: false, message: 'Failed to retrieve attendance record' });
+  }
+};
+
 
