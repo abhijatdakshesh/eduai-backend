@@ -11,6 +11,9 @@ const announcementsController = require('../controllers/announcementsController'
 router.use(authenticateToken, requireUserType(['teacher']));
 
 router.get('/classes', teacherController.getMyClasses);
+router.get('/me', (req, res) => {
+  res.json({ success: true, message: 'Profile', data: { user: { id: req.user.id, user_type: req.user.user_type } } });
+});
 router.get('/classes/:classId/students', teacherController.getClassRoster);
 router.get('/classes/:classId/attendance', teacherController.getAttendanceForDate);
 router.post('/classes/:classId/attendance', teacherController.saveAttendanceBulk);

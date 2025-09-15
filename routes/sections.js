@@ -29,11 +29,25 @@ router.get('/:id',
   sectionController.getSection
 );
 
-// Get section students (Admin only)
+// Get section students (Admin or Teacher with assignment)
 router.get('/:id/students',
   authenticateToken,
-  requireUserType(['admin']),
-  sectionController.listSectionStudents
+  requireUserType(['admin','teacher']),
+  async (req, res, next) => {
+    if (req.user.user_type === 'admin') return sectionController.listSectionStudents(req, res);
+    try {
+      const db = require('../config/database');
+      const { id } = req.params;
+      const allowed = await db.query(`
+        SELECT 1 FROM section_teachers st
+        JOIN teachers t ON st.teacher_id = t.id
+        WHERE st.section_id = $1 AND t.user_id = $2 AND st.status = 'active'`, [id, req.user.id]);
+      if (allowed.rows.length === 0) {
+        return res.status(403).json({ success: false, message: 'Not authorized for this section' });
+      }
+      return sectionController.listSectionStudents(req, res);
+    } catch (e) { next(e); }
+  }
 );
 
 // Get section teachers (Admin only)

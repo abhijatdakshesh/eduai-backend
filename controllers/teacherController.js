@@ -142,10 +142,26 @@ module.exports = {
   async saveAttendanceBulk(req, res) {
     try {
       const { classId } = req.params;
-      const { date, entries } = req.body;
+      const { date, time_slot, entries } = req.body || {};
 
-      if (!date || !Array.isArray(entries)) {
-        return res.status(400).json({ success: false, message: 'date and entries are required' });
+      // Basic payload validation (422 on validation errors)
+      const errors = [];
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!classId || (typeof classId === 'string' && classId.trim().length === 0)) {
+        errors.push('classId path parameter is required');
+      }
+      if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        errors.push('date must be provided in YYYY-MM-DD format');
+      }
+      if (!time_slot || !/^\d{2}:\d{2}-\d{2}:\d{2}$/.test(time_slot)) {
+        errors.push('time_slot must be provided in HH:MM-HH:MM format');
+      }
+      if (!Array.isArray(entries) || entries.length === 0) {
+        errors.push('entries must be a non-empty array');
+      }
+      if (errors.length > 0) {
+        console.warn('saveAttendanceBulk validation errors:', { errors, body: req.body });
+        return res.status(422).json({ success: false, message: 'Validation failed', data: { errors } });
       }
 
       const owns = await assertTeacherOwnsClass(classId, req.user.id);
@@ -163,15 +179,16 @@ module.exports = {
       }
 
       // Validate statuses
-      const allowedStatuses = new Set(['present', 'absent', 'late', 'excused']);
+      const allowedStatuses = new Set(['present', 'absent', 'late']);
       for (const e of entries) {
-        if (e.status && !allowedStatuses.has(e.status)) {
-          return res.status(400).json({ success: false, message: `Invalid status: ${e.status}` });
+        const statusLower = (e.status || '').toLowerCase();
+        if (!allowedStatuses.has(statusLower)) {
+          return res.status(422).json({ success: false, message: `Invalid status: ${e.status}`, data: { allowed: Array.from(allowedStatuses) } });
         }
       }
 
       // Resolve student identifiers: accept either UUIDs or student codes (e.g., "S001")
-      const isUuid = (value) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+      const isUuid = (value) => typeof value === 'string' && uuidRegex.test(value);
       const roster = await db.query(
         `SELECT s.id AS student_uuid, s.student_id AS student_code
          FROM student_classes sc
@@ -187,7 +204,8 @@ module.exports = {
       const resolvedEntries = [];
 
       for (const e of entries) {
-        const candidateId = e.student_id ?? null;
+        // Support both student_id and studentId keys
+        const candidateId = e.student_id ?? e.studentId ?? null;
         const candidateCode = e.student_code ?? null;
         let resolvedUuid = null;
 
@@ -215,32 +233,103 @@ module.exports = {
 
         resolvedEntries.push({
           student_id: resolvedUuid,
-          status: e.status,
+          status: (e.status || '').toLowerCase(),
           notes: e.notes
         });
       }
 
       if (unresolved.length > 0) {
-        return res.status(400).json({ success: false, message: 'One or more students could not be resolved to an enrolled student in this class', data: { unresolved } });
+        return res.status(422).json({ success: false, message: 'One or more students could not be resolved to an enrolled student in this class', data: { unresolved } });
       }
 
       if (notEnrolled.length > 0) {
-        return res.status(400).json({ success: false, message: 'One or more students are not enrolled in this class', data: { notEnrolled } });
+        return res.status(422).json({ success: false, message: 'One or more students are not enrolled in this class', data: { notEnrolled } });
       }
 
-      // Upsert all entries
+      // Idempotency (best-effort). If Idempotency-Key header present, try to record and short-circuit on duplicates
+      const idemKey = req.headers['idempotency-key'] || req.headers['Idempotency-Key'] || null;
+      if (idemKey) {
+        try {
+          await db.query(
+            `INSERT INTO idempotency_keys (key, user_id, endpoint, created_at)
+             VALUES ($1, $2, $3, NOW())`,
+            [idemKey.toString().substring(0, 128), req.user.id, `POST /teacher/classes/${classId}/attendance`]
+          );
+        } catch (e) {
+          // If duplicate key, return current summary instead of re-processing
+          if (e && e.code === '23505') {
+            const counts = await db.query(
+              `SELECT status, COUNT(*)::int as count
+               FROM attendance
+               WHERE class_id = $1 AND date = $2
+               GROUP BY status`,
+              [classId, date]
+            );
+            const base = { present: 0, absent: 0, late: 0 };
+            for (const r of counts.rows) base[r.status] = r.count;
+            return res.status(200).json({ success: true, data: base });
+          }
+        }
+      }
+
+      // Deduplicate entries by student_id (last wins) to avoid duplicate writes, then write inside a transaction
+      const dedupMap = new Map();
+      for (const e of resolvedEntries) dedupMap.set(e.student_id, e);
+      const finalEntries = Array.from(dedupMap.values());
+
       let updated = 0;
-      for (const e of resolvedEntries) {
-        const status = e.status || 'present';
-        const notes = e.notes || null;
-        await db.query(
-          `INSERT INTO attendance (student_id, class_id, date, status, notes, recorded_by)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           ON CONFLICT (student_id, class_id, date)
-           DO UPDATE SET status = EXCLUDED.status, notes = EXCLUDED.notes, recorded_by = EXCLUDED.recorded_by`,
-          [e.student_id, classId, date, status, notes, req.user.id]
-        );
-        updated += 1;
+      await db.query('BEGIN');
+      try {
+        for (const e of finalEntries) {
+          const status = e.status || 'present';
+          const notes = e.notes || null;
+          // 1) try update
+          let result;
+          if (time_slot) {
+            result = await db.query(
+              `UPDATE attendance
+               SET status = $5, notes = $6, recorded_by = $7
+               WHERE student_id = $1 AND class_id = $2 AND date = $3 AND time_slot = $4
+               RETURNING id`,
+              [e.student_id, classId, date, time_slot, status, notes, req.user.id]
+            );
+            if (result.rowCount === 0) {
+              // 2) insert if no existing row
+              await db.query(
+                `INSERT INTO attendance (student_id, class_id, date, time_slot, status, notes, recorded_by)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [e.student_id, classId, date, time_slot, status, notes, req.user.id]
+              );
+            }
+          } else {
+            result = await db.query(
+              `UPDATE attendance
+               SET status = $4, notes = $5, recorded_by = $6
+               WHERE student_id = $1 AND class_id = $2 AND date = $3 AND time_slot IS NULL
+               RETURNING id`,
+              [e.student_id, classId, date, status, notes, req.user.id]
+            );
+            if (result.rowCount === 0) {
+              await db.query(
+                `INSERT INTO attendance (student_id, class_id, date, time_slot, status, notes, recorded_by)
+                 VALUES ($1, $2, $3, NULL, $4, $5, $6)`,
+                [e.student_id, classId, date, status, notes, req.user.id]
+              );
+            }
+          }
+          updated += 1;
+        }
+        await db.query('COMMIT');
+      } catch (writeErr) {
+        await db.query('ROLLBACK');
+        console.error('saveAttendanceBulk write transaction error:', { code: writeErr.code, detail: writeErr.detail, message: writeErr.message });
+        if (writeErr.code === '23505') {
+          return res.status(409).json({ success: false, message: 'Duplicate attendance detected for one or more students' });
+        }
+        if (writeErr.code === '23503') {
+          return res.status(422).json({ success: false, message: 'Invalid reference in attendance payload' });
+        }
+        throw writeErr;
       }
 
       // Audit log (summary)
@@ -253,7 +342,7 @@ module.exports = {
             'save_attendance_bulk',
             'attendance',
             classId,
-            JSON.stringify({ date, entries_count: entries.length })
+            JSON.stringify({ date, time_slot, entries_count: entries.length })
           ]
         );
       } catch (e) {
@@ -261,7 +350,67 @@ module.exports = {
         console.warn('audit log failed:', e.message);
       }
 
-      res.json({ success: true, message: 'Attendance saved', data: { updated } });
+      // Build counts summary with fallback if time_slot column is absent
+      let counts;
+      try {
+        counts = await db.query(
+          `SELECT LOWER(status) AS status, COUNT(*)::int as count
+           FROM attendance
+           WHERE class_id = $1 AND date = $2${time_slot ? ' AND time_slot = $3' : ''}
+           GROUP BY LOWER(status)`,
+          time_slot ? [classId, date, time_slot] : [classId, date]
+        );
+      } catch (countErr) {
+        // Fallback: ignore time_slot filter if column missing
+        counts = await db.query(
+          `SELECT LOWER(status) AS status, COUNT(*)::int as count
+           FROM attendance
+           WHERE class_id = $1 AND date = $2
+           GROUP BY LOWER(status)`,
+          [classId, date]
+        );
+      }
+      const summary = { present: 0, absent: 0, late: 0 };
+      for (const r of counts.rows) summary[r.status] = r.count;
+
+      // Emit websocket event to subscribed students if socket server is available
+      try {
+        const io = req.app && req.app.get && req.app.get('io');
+        if (io) {
+          io.to(`class_${classId}`).emit('attendance_marked', {
+            type: 'attendance_marked',
+            classId,
+            date,
+            time_slot: time_slot || null,
+            counts: summary
+          });
+          // Notify per-student and their parents for real-time updates
+          for (const e of resolvedEntries) {
+            io.to(`student_${e.student_id}`).emit('attendance_marked', {
+              type: 'attendance_marked',
+              studentId: e.student_id,
+              classId,
+              date,
+              time_slot: time_slot || null,
+              status: e.status,
+              notes: e.notes || null
+            });
+            io.to(`parent_${e.student_id}`).emit('attendance_marked', {
+              type: 'attendance_marked',
+              studentId: e.student_id,
+              classId,
+              date,
+              time_slot: time_slot || null,
+              status: e.status,
+              notes: e.notes || null
+            });
+          }
+        }
+      } catch (wsErr) {
+        console.warn('WebSocket emit failed:', wsErr.message);
+      }
+
+      res.status(200).json({ success: true, data: summary });
     } catch (error) {
       console.error('saveAttendanceBulk error:', error);
       res.status(500).json({ success: false, message: 'Failed to save attendance' });

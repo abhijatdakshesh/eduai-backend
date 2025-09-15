@@ -593,19 +593,19 @@ class AuthController {
 
       res.status(200).json({
         success: true,
-        message: 'Token refreshed successfully',
         data: {
-          access_token: newAccessToken,
-          refresh_token: newRefreshToken
+          tokens: {
+            access_token: newAccessToken,
+            refresh_token: newRefreshToken
+          }
         }
       });
 
     } catch (error) {
       console.error('Refresh token error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Internal server error during token refresh'
-      });
+      // Token verification errors should not be 500
+      const message = (error && error.name === 'TokenExpiredError') ? 'Refresh token expired' : 'Invalid refresh token';
+      return res.status(401).json({ success: false, message });
     }
   }
 

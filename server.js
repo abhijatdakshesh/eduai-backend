@@ -24,6 +24,7 @@ const attendanceRoutes = require('./routes/attendance');
 const studentRoutes = require('./routes/student');
 const classesRoutes = require('./routes/classes');
 const assignmentRoutes = require('./routes/assignments');
+const assessmentsRoutes = require('./routes/assessments');
 const announcementsRoutes = require('./routes/announcements');
 const sectionsRoutes = require('./routes/sections');
 const errorHandler = require('./middleware/errorHandler');
@@ -32,6 +33,8 @@ const { authenticateAssignmentFile, authenticateSubmissionFile, serveFile } = re
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+let serverInstance = null;
+let io = null;
 
 // Security middleware
 app.use(helmet({
@@ -50,7 +53,7 @@ app.use(cors({
   origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:3000', 'http://localhost:8081', 'http://192.168.1.139:8081'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Client-Version', 'X-Device-Id', 'X-Platform', 'X-OS-Version', 'X-Country', 'X-State', 'X-City', 'X-Timezone']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Client-Version', 'X-Device-Id', 'X-Platform', 'X-OS-Version', 'X-Country', 'X-State', 'X-City', 'X-Timezone', 'Idempotency-Key', 'idempotency-key']
 }));
 
 // Compression middleware
@@ -129,6 +132,7 @@ const routeRegistry = [
   { path: `${BASE_PATH}/student`, router: studentRoutes },
   { path: `${BASE_PATH}/classes`, router: classesRoutes },
   { path: `${BASE_PATH}/assignments`, router: assignmentRoutes },
+  { path: `${BASE_PATH}/assessments`, router: assessmentsRoutes },
   { path: `${BASE_PATH}/announcements`, router: announcementsRoutes },
   { path: `${BASE_PATH}/sections`, router: sectionsRoutes },
   { path: '/health', router: healthRoutes }
@@ -249,8 +253,33 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
-// Start server
-app.listen(PORT, () => {
+// Start server with Socket.IO for realtime events
+serverInstance = require('http').createServer(app);
+try {
+  const { Server } = require('socket.io');
+  io = new Server(serverInstance, {
+    cors: {
+      origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:3000', 'http://localhost:8081'],
+      credentials: true
+    }
+  });
+
+  // Basic room subscription: clients can join class rooms like `class_<classId>`
+  io.on('connection', (socket) => {
+    socket.on('subscribe', ({ room }) => {
+      if (!room || typeof room !== 'string') return;
+      if (room.startsWith('class_') || room.startsWith('student_') || room.startsWith('parent_')) {
+        socket.join(room);
+      }
+    });
+  });
+
+  app.set('io', io);
+} catch (e) {
+  console.warn('Socket.IO not initialized:', e.message);
+}
+
+serverInstance.listen(PORT, () => {
   console.log(`🚀 EduAI Authentication API server running on port ${PORT}`);
   console.log(`📊 Health check available at: http://localhost:${PORT}/health`);
   console.log(`🔐 API endpoints available at: http://localhost:${PORT}${BASE_PATH}`);

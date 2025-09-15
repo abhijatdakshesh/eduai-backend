@@ -8,6 +8,7 @@
     "dev": "nodemon server.js",
     "test": "jest",
     "migrate": "node scripts/migrate.js",
+    "migrate:attendance": "node scripts/migrate_attendance_timeslot_and_idempotency.js",
     "seed": "node scripts/seed.js",
     "setup": "node scripts/setup.js",
     "test:smtp": "node scripts/test-smtp.js",
@@ -39,6 +40,7 @@
     "multer": "^2.0.2",
     "nodemailer": "^6.9.7",
     "pg": "^8.11.3",
+    "socket.io": "^4.8.1",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
