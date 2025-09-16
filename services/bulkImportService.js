@@ -169,6 +169,8 @@ class BulkImportService {
       await client.query('BEGIN');
 
       for (let i = 0; i < csvData.length; i++) {
+        const savepointName = `sp_row_${i + 1}`;
+        await client.query(`SAVEPOINT ${savepointName}`);
         try {
           const row = csvData[i];
           
@@ -178,13 +180,17 @@ class BulkImportService {
           
           results.imported++;
         } catch (error) {
+          await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+          await client.query(`RELEASE SAVEPOINT ${savepointName}`);
           results.errors++;
           results.details.errors.push({
             row: i + 2,
             error: error.message,
             data: csvData[i]
           });
+          continue;
         }
+        await client.query(`RELEASE SAVEPOINT ${savepointName}`);
       }
 
       await client.query('COMMIT');

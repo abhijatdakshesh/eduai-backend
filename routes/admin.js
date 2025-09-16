@@ -29,6 +29,8 @@ router.post('/students/import', upload.single('file'), adminController.importStu
 // Enhanced Bulk Import/Export System
 router.post('/bulk-import/validate', upload.single('file'), adminController.validateBulkImport);
 router.post('/bulk-import/unified', upload.single('file'), adminController.bulkImportUnified);
+// Alias route for legacy frontend expecting /bulk-import/students
+router.post('/bulk-import/students', upload.single('file'), adminController.importStudentsCsv);
 router.get('/students/export', adminController.exportStudents);
 
 // Teacher Management

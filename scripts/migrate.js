@@ -39,7 +39,7 @@ const createTables = async () => {
     `);
 
     // Add missing columns to users table if they don't exist
-    const userColumns = ['phone', 'date_of_birth', 'gender', 'avatar_url', 'is_email_verified', 'is_active', 'updated_at'];
+    const userColumns = ['phone', 'date_of_birth', 'gender', 'avatar_url', 'is_email_verified', 'is_active', 'updated_at', 'address'];
     for (const column of userColumns) {
       try {
         await db.query(`ALTER TABLE users ADD COLUMN ${column} ${getColumnType(column)}`);
@@ -409,6 +409,27 @@ const createTables = async () => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+
+    // Ensure enhanced student columns exist
+    const studentNewCols = [
+      'department VARCHAR(100)',
+      'semester VARCHAR(50)',
+      'section VARCHAR(10)',
+      'address TEXT',
+      'emergency_contact VARCHAR(255)',
+      'medical_info TEXT'
+    ];
+    for (const def of studentNewCols) {
+      const col = def.split(' ')[0];
+      try {
+        await db.query(`ALTER TABLE students ADD COLUMN ${def}`);
+        console.log(`Added students.${col}`);
+      } catch (error) {
+        if (error.code !== '42701') { // duplicate_column
+          throw error;
+        }
+      }
+    }
 
     // Teachers table
     await db.query(`
