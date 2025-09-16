@@ -15,6 +15,7 @@ router.get('/me', (req, res) => {
   res.json({ success: true, message: 'Profile', data: { user: { id: req.user.id, user_type: req.user.user_type } } });
 });
 router.get('/classes/:classId/students', teacherController.getClassRoster);
+router.get('/classes/:classId/subjects', teacherController.getClassSubjects);
 router.get('/classes/:classId/attendance', teacherController.getAttendanceForDate);
 router.post('/classes/:classId/attendance', teacherController.saveAttendanceBulk);
 router.get('/attendance/summary', teacherController.getAttendanceSummary);

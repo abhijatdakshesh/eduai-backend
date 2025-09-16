@@ -110,6 +110,29 @@ module.exports = {
     }
   },
 
+  async getClassSubjects(req, res) {
+    try {
+      const { classId } = req.params;
+      const owns = await assertTeacherOwnsClass(classId, req.user.id);
+      if (!owns) {
+        return res.status(403).json({ success: false, message: 'Not authorized for this class' });
+      }
+
+      const subjects = await db.query(
+        `SELECT id, name, code, description
+         FROM subjects
+         WHERE class_id = $1
+         ORDER BY name`,
+        [classId]
+      );
+
+      res.json({ success: true, message: 'Subjects retrieved', data: { subjects: subjects.rows } });
+    } catch (error) {
+      console.error('getClassSubjects error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve subjects' });
+    }
+  },
+
   async getAttendanceForDate(req, res) {
     try {
       const { classId } = req.params;
