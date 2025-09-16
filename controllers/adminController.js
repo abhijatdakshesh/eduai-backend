@@ -1,4 +1,5 @@
 const db = require('../config/database');
+const bulkImportService = require('../services/bulkImportService');
 
 // Dashboard Analytics
 const getDashboardStats = async (req, res) => {
@@ -1154,6 +1155,319 @@ const unlinkParentChild = async (req, res) => {
   }
 };
 
+// Enhanced Bulk Import/Export System
+const validateBulkImport = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'CSV file is required'
+      });
+    }
+
+    const csvData = await bulkImportService.parseCSV(req.file.buffer);
+    const validation = await bulkImportService.validateCSVData(csvData);
+
+    res.json({
+      success: true,
+      data: validation
+    });
+
+  } catch (error) {
+    console.error('validateBulkImport error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to validate CSV file',
+      error: error.message
+    });
+  }
+};
+
+const bulkImportUnified = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'CSV file is required'
+      });
+    }
+
+    const results = await bulkImportService.processUnifiedCSV(req.file);
+
+    // Log the import activity
+    try {
+      await db.query(
+        `INSERT INTO audit_logs (user_id, action, resource_type, details)
+         VALUES ($1, $2, $3, $4)`,
+        [req.user.id, 'bulk_import', 'students', JSON.stringify(results)]
+      );
+    } catch (auditError) {
+      console.log('Audit log error (non-critical):', auditError.message);
+    }
+
+    res.json({
+      success: true,
+      data: results
+    });
+
+  } catch (error) {
+    console.error('bulkImportUnified error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to import CSV file',
+      error: error.message
+    });
+  }
+};
+
+const exportStudents = async (req, res) => {
+  try {
+    const { department, academic_year, semester, section, include_parents = 'true' } = req.query;
+    
+    const filters = {};
+    if (department) filters.department = department;
+    if (academic_year) filters.academic_year = academic_year;
+    if (semester) filters.semester = semester;
+    if (section) filters.section = section;
+
+    const exportData = await bulkImportService.exportStudents(filters);
+
+    // Log the export activity
+    try {
+      await db.query(
+        `INSERT INTO audit_logs (user_id, action, resource_type, details)
+         VALUES ($1, $2, $3, $4)`,
+        [req.user.id, 'export', 'students', JSON.stringify({ filters, count: exportData.total_count })]
+      );
+    } catch (auditError) {
+      console.log('Audit log error (non-critical):', auditError.message);
+    }
+
+    res.json({
+      success: true,
+      data: exportData
+    });
+
+  } catch (error) {
+    console.error('exportStudents error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to export students',
+      error: error.message
+    });
+  }
+};
+
+// Department Management
+const getDepartments = async (req, res) => {
+  try {
+    const { page = 1, limit = 10, search } = req.query;
+    const offset = (page - 1) * limit;
+
+    let whereConditions = ['1=1'];
+    let queryParams = [];
+    let paramCount = 0;
+
+    if (search) {
+      paramCount++;
+      whereConditions.push(`(name ILIKE $${paramCount} OR code ILIKE $${paramCount})`);
+      queryParams.push(`%${search}%`);
+    }
+
+    paramCount++;
+    queryParams.push(limit);
+    paramCount++;
+    queryParams.push(offset);
+
+    const query = `
+      SELECT id, name, code, description, created_at
+      FROM departments
+      WHERE ${whereConditions.join(' AND ')}
+      ORDER BY name
+      LIMIT $${paramCount - 1} OFFSET $${paramCount}
+    `;
+
+    const departments = await db.query(query, queryParams);
+
+    // Get total count
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM departments
+      WHERE ${whereConditions.join(' AND ')}
+    `;
+    
+    const countResult = await db.query(countQuery, queryParams.slice(0, -2));
+    const total = parseInt(countResult.rows[0].total);
+
+    res.json({
+      success: true,
+      message: 'Departments retrieved successfully',
+      data: {
+        departments: departments.rows,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          pages: Math.ceil(total / limit)
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('getDepartments error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve departments'
+    });
+  }
+};
+
+const createDepartment = async (req, res) => {
+  try {
+    const { name, code, description } = req.body;
+
+    if (!name) {
+      return res.status(400).json({
+        success: false,
+        message: 'Department name is required'
+      });
+    }
+
+    const departmentResult = await db.query(`
+      INSERT INTO departments (name, code, description)
+      VALUES ($1, $2, $3)
+      RETURNING id, name, code, description, created_at
+    `, [name, code, description]);
+
+    const department = departmentResult.rows[0];
+
+    res.status(201).json({
+      success: true,
+      message: 'Department created successfully',
+      data: { department }
+    });
+
+  } catch (error) {
+    console.error('createDepartment error:', error);
+    if (error.code === '23505') { // Unique constraint violation
+      res.status(400).json({
+        success: false,
+        message: 'Department with this name or code already exists'
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: 'Failed to create department'
+      });
+    }
+  }
+};
+
+// Academic Period Management
+const getAcademicPeriods = async (req, res) => {
+  try {
+    const { page = 1, limit = 10, is_active } = req.query;
+    const offset = (page - 1) * limit;
+
+    let whereConditions = ['1=1'];
+    let queryParams = [];
+    let paramCount = 0;
+
+    if (is_active !== undefined) {
+      paramCount++;
+      whereConditions.push(`is_active = $${paramCount}`);
+      queryParams.push(is_active === 'true');
+    }
+
+    paramCount++;
+    queryParams.push(limit);
+    paramCount++;
+    queryParams.push(offset);
+
+    const query = `
+      SELECT id, academic_year, semester, start_date, end_date, is_active, created_at
+      FROM academic_periods
+      WHERE ${whereConditions.join(' AND ')}
+      ORDER BY academic_year DESC, semester
+      LIMIT $${paramCount - 1} OFFSET $${paramCount}
+    `;
+
+    const periods = await db.query(query, queryParams);
+
+    // Get total count
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM academic_periods
+      WHERE ${whereConditions.join(' AND ')}
+    `;
+    
+    const countResult = await db.query(countQuery, queryParams.slice(0, -2));
+    const total = parseInt(countResult.rows[0].total);
+
+    res.json({
+      success: true,
+      message: 'Academic periods retrieved successfully',
+      data: {
+        periods: periods.rows,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          pages: Math.ceil(total / limit)
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('getAcademicPeriods error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve academic periods'
+    });
+  }
+};
+
+const createAcademicPeriod = async (req, res) => {
+  try {
+    const { academic_year, semester, start_date, end_date, is_active = false } = req.body;
+
+    if (!academic_year || !semester) {
+      return res.status(400).json({
+        success: false,
+        message: 'Academic year and semester are required'
+      });
+    }
+
+    const periodResult = await db.query(`
+      INSERT INTO academic_periods (academic_year, semester, start_date, end_date, is_active)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING id, academic_year, semester, start_date, end_date, is_active, created_at
+    `, [academic_year, semester, start_date, end_date, is_active]);
+
+    const period = periodResult.rows[0];
+
+    res.status(201).json({
+      success: true,
+      message: 'Academic period created successfully',
+      data: { period }
+    });
+
+  } catch (error) {
+    console.error('createAcademicPeriod error:', error);
+    if (error.code === '23505') { // Unique constraint violation
+      res.status(400).json({
+        success: false,
+        message: 'Academic period with this year and semester already exists'
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: 'Failed to create academic period'
+      });
+    }
+  }
+};
+
 // Get single class details
 const getClass = async (req, res) => {
   try {
@@ -1311,5 +1625,15 @@ module.exports = {
   updateParent,
   deleteParent,
   linkParentChild,
-  unlinkParentChild
+  unlinkParentChild,
+  // Enhanced Bulk Import/Export System
+  validateBulkImport,
+  bulkImportUnified,
+  exportStudents,
+  // Department Management
+  getDepartments,
+  createDepartment,
+  // Academic Period Management
+  getAcademicPeriods,
+  createAcademicPeriod
 };

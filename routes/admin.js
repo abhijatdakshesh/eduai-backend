@@ -26,6 +26,11 @@ router.patch('/students/:id', adminController.updateStudent);
 router.delete('/students/:id', adminController.deleteStudent);
 router.post('/students/import', upload.single('file'), adminController.importStudentsCsv);
 
+// Enhanced Bulk Import/Export System
+router.post('/bulk-import/validate', upload.single('file'), adminController.validateBulkImport);
+router.post('/bulk-import/unified', upload.single('file'), adminController.bulkImportUnified);
+router.get('/students/export', adminController.exportStudents);
+
 // Teacher Management
 router.get('/teachers', adminController.getTeachers);
 router.post('/teachers', adminController.createTeacher);
@@ -58,5 +63,13 @@ router.delete('/parents/:parentId/children/:studentId', adminController.unlinkPa
 
 // Attendance Management
 router.get('/attendance/audit', adminController.getAttendanceAudit);
+
+// Department Management
+router.get('/departments', adminController.getDepartments);
+router.post('/departments', adminController.createDepartment);
+
+// Academic Period Management
+router.get('/academic-periods', adminController.getAcademicPeriods);
+router.post('/academic-periods', adminController.createAcademicPeriod);
 
 module.exports = router;
