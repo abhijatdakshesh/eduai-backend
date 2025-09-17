@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: eduai-backend
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+    healthCheckPath: /health
+
+databases:
+  - name: eduai-postgres
+    plan: free
+    databaseName: eduai_auth
