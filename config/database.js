@@ -1,6 +1,11 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
+const shouldUseSsl =
+  process.env.DB_SSL === 'true' ||
+  /render\.com$/i.test(process.env.DB_HOST || '') ||
+  (process.env.NODE_ENV === 'production' && (process.env.DB_HOST || '') !== 'localhost');
+
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
@@ -10,6 +15,7 @@ const pool = new Pool({
   max: 20, // Maximum number of clients in the pool
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
+  ssl: shouldUseSsl ? { rejectUnauthorized: false } : undefined,
 });
 
 // Test the connection
