@@ -49,13 +49,26 @@ app.use(helmet({
   },
 }));
 
-// CORS configuration
-app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:3000', 'http://localhost:8081', 'http://192.168.1.139:8081'],
+// CORS configuration (explicit preflight handling)
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  : ['http://localhost:3000', 'http://localhost:8081', 'http://192.168.1.139:8081'];
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true); // allow non-browser tools
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Client-Version', 'X-Device-Id', 'X-Platform', 'X-OS-Version', 'X-Country', 'X-State', 'X-City', 'X-Timezone', 'Idempotency-Key', 'idempotency-key']
-}));
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Client-Version', 'X-Device-Id', 'X-Platform', 'X-OS-Version', 'X-Country', 'X-State', 'X-City', 'X-Timezone', 'Idempotency-Key', 'idempotency-key'],
+  optionsSuccessStatus: 204,
+  preflightContinue: false,
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 // Compression middleware
 app.use(compression());
