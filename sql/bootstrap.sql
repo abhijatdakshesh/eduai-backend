@@ -1,28 +1,28 @@
--- Bootstrap SQL for Render Postgres (idempotent)
+-- Bootstrap SQL for Render Postgres (idempotent, no FK dependencies)
 -- Safe to run multiple times
 
 -- Enable pgcrypto for gen_random_uuid if not already
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- attendance table (minimal columns used by app)
+-- attendance table (no foreign keys to avoid dependency issues)
 CREATE TABLE IF NOT EXISTS attendance (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  student_id UUID REFERENCES students(id),
-  class_id UUID REFERENCES classes(id),
+  student_id UUID,
+  class_id UUID,
   date DATE NOT NULL,
   status VARCHAR(20) DEFAULT 'present',
   notes TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- recorded_by column (used by controller)
+-- recorded_by column (no FK)
 DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_name = 'attendance' AND column_name = 'recorded_by'
   ) THEN
-    ALTER TABLE attendance ADD COLUMN recorded_by UUID REFERENCES users(id);
+    ALTER TABLE attendance ADD COLUMN recorded_by UUID;
   END IF;
 END $$;
 
@@ -47,12 +47,10 @@ BEGIN
     FROM pg_constraint
     WHERE conrelid = 'attendance'::regclass AND contype = 'u'
   LOOP
-    -- Skip if it's our newer partial indexes
     IF con.conname NOT IN ('uniq_attendance_no_slot', 'uniq_attendance_with_slot') THEN
       BEGIN
         EXECUTE format('ALTER TABLE attendance DROP CONSTRAINT %I;', con.conname);
       EXCEPTION WHEN others THEN
-        -- ignore
         NULL;
       END;
     END IF;
@@ -82,11 +80,11 @@ BEGIN
   END IF;
 END $$;
 
--- Optional: teacher_attendance flow tables (safe to run)
+-- Optional: teacher_attendance flow tables (no FK)
 CREATE TABLE IF NOT EXISTS teacher_attendance (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  teacher_id UUID REFERENCES teachers(id) ON DELETE CASCADE,
-  department_id UUID REFERENCES departments(id) ON DELETE CASCADE,
+  teacher_id UUID,
+  department_id UUID,
   section VARCHAR(10) NOT NULL,
   time_slot TIME NOT NULL,
   date DATE NOT NULL,
@@ -97,8 +95,8 @@ CREATE TABLE IF NOT EXISTS teacher_attendance (
 
 CREATE TABLE IF NOT EXISTS student_attendance_entries (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  attendance_id UUID REFERENCES teacher_attendance(id) ON DELETE CASCADE,
-  student_id UUID REFERENCES students(id) ON DELETE CASCADE,
+  attendance_id UUID,
+  student_id UUID,
   status VARCHAR(20) NOT NULL DEFAULT 'present',
   notes TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
