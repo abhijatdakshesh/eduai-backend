@@ -159,7 +159,7 @@ const applyForJob = async (req, res) => {
 
     // Check if job exists and is active
     const job = await db.query(`
-      SELECT id, deadline FROM jobs
+      SELECT id, deadline, application_url FROM jobs
       WHERE id = $1 AND is_active = true
     `, [id]);
 
@@ -167,6 +167,15 @@ const applyForJob = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Job not found'
+      });
+    }
+
+    // If external application URL is provided, return it for client-side redirect
+    if (job.rows[0].application_url) {
+      return res.json({
+        success: true,
+        message: 'External application URL available',
+        data: { redirect_url: job.rows[0].application_url }
       });
     }
 
